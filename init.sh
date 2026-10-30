@@ -19,6 +19,12 @@ if [ "$project" = "$playbook" ]; then
   exit 1
 fi
 
+if ! git -C "$playbook" diff --quiet HEAD -- rules.md procedures \
+  || [ -n "$(git -C "$playbook" ls-files --others --exclude-standard -- procedures)" ]; then
+  echo "init.sh: the playbook clone has uncommitted changes in rules.md or procedures/: commit them first" >&2
+  exit 1
+fi
+
 created_agents=false
 created_makefile=false
 while read -r f; do

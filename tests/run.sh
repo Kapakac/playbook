@@ -98,6 +98,23 @@ check "text outside the block kept" grep -qx 'project text after the block' "$pr
 check "project section kept" grep -qx '## Проект' "$proj/AGENTS.md"
 check_output "no warning after sync" 1 "newer rules" verify
 
+printf '## Rules\n\n- no final newline' >"$pb/rules.md"
+printf '# Новая\n' >"$pb/procedures/новая.md"
+mkdir -p "$pb/procedures/sub"
+printf 'nested\n' >"$pb/procedures/sub/x.md"
+git -C "$pb" add -A
+git -C "$pb" commit -q -m "edge cases"
+sha3=$(git -C "$pb" rev-parse HEAD)
+check "sync handles no final newline, non-ASCII names and subdirectories" sync
+check "check passes after the edge-case sync" verify
+check "non-ASCII procedure copied" diff "$proj/docs/playbook/новая.md" "$pb/procedures/новая.md"
+check "subdirectories are not copied" test ! -e "$proj/docs/playbook/sub"
+check "end marker on its own line" grep -qx '<!-- playbook:end -->' "$proj/AGENTS.md"
+
+git -C "$pb" checkout -q "$sha2"
+check_output "check warns when the clone is older than the marker" 0 "does not contain $sha3" verify
+git -C "$pb" checkout -q main
+
 echo x >"$proj/docs/playbook/old.md"
 check_output "sync warns about a stale copy" 0 "old.md is not in the playbook" sync
 check "sync does not delete the stale copy" test -f "$proj/docs/playbook/old.md"
@@ -115,10 +132,16 @@ check_fails "check fails on a never-synced block" "$pb/scripts/sync-rules.sh" --
 
 cp "$pb/templates/AGENTS.md" "$pb/AGENTS.md"
 printf '## Rules\n\n- one\n- two\n- three\n' >"$pb/rules.md"
+git -C "$pb" add -A && git -C "$pb" commit -q -m "self agents"
+printf '## Rules\n\n- dirty\n' >"$pb/rules.md"
+mkdir -p "$work/dirty"
+check_fails "init refuses a dirty playbook" "$pb/init.sh" "$work/dirty" x
+check "init copies nothing from a dirty playbook" test ! -e "$work/dirty/AGENTS.md"
 check_fails "self check fails before sync" "$pb/scripts/sync-rules.sh" --check "$pb"
 check "self sync takes uncommitted rules.md" "$pb/scripts/sync-rules.sh" "$pb"
 check "self check passes" "$pb/scripts/sync-rules.sh" --check "$pb"
 check "self sync does not copy procedures" test ! -e "$pb/docs/playbook"
+check "self marker has no commit" grep -q 'playbook@0000000000000000000000000000000000000000 ' "$pb/AGENTS.md"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures test(s) failed" >&2

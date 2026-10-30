@@ -58,7 +58,13 @@ block() {
 }
 
 procedure_names() {
-  pb ls-tree --name-only "$1" procedures/ | sed 's|^procedures/||'
+  git -c core.quotePath=false -C "$playbook" ls-tree "$1" procedures/ \
+    | awk -F '\t' '$1 ~ / blob / { sub(/^procedures\//, "", $2); print $2 }'
+}
+
+# A missing final newline would glue the end marker to the last line, so both sync and check add one.
+show() {
+  pb show "$1" | awk 1
 }
 
 if [ "$mode" = sync ]; then
@@ -67,39 +73,31 @@ if [ "$mode" = sync ]; then
     $self || fail "the playbook clone has uncommitted changes in rules.md or procedures/: commit them first"
   fi
   sha=$(pb rev-parse HEAD)
+  ! $self || sha=0000000000000000000000000000000000000000
   if ! $self && pb rev-parse --verify --quiet origin/main >/dev/null; then
     GIT_TERMINAL_PROMPT=0 pb fetch --quiet origin main 2>/dev/null || warn "git fetch of the playbook failed"
     pb merge-base --is-ancestor "$sha" origin/main \
       || warn "playbook HEAD $sha is not in origin/main: sync from an up-to-date main (git -C $playbook pull)"
   fi
 
-  if $self; then
-    rules=$(cat "$playbook/rules.md"; echo .)
-  else
-    rules=$(pb show "$sha:rules.md"; echo .)
-  fi
-  rules=${rules%.}
-  [ -z "$rules" ] || [ "${rules: -1}" = $'\n' ] || rules+=$'\n'
-
   tmp=$(mktemp)
   trap 'rm -f "$tmp"' EXIT
   {
     head -n "$((begin_n - 1))" "$agents"
     echo "<!-- playbook:begin Kapakac/playbook@$sha (не править руками, обновлять: make sync-rules) -->"
-    printf '%s' "$rules"
+    if $self; then awk 1 "$playbook/rules.md"; else show "$sha:rules.md"; fi
     echo "$end_line"
     tail -n "+$((end_n + 1))" "$agents"
   } >"$tmp"
-  cat "$tmp" >"$agents"
-  echo "AGENTS.md: shared block from playbook@$sha"
 
+  # Procedures go first so that a failure leaves the old marker, and check keeps pointing at the old commit.
   if ! $self; then
     mkdir -p "$copies"
     names=$(procedure_names "$sha")
     count=0
     while read -r name; do
       [ -n "$name" ] || continue
-      pb show "$sha:procedures/$name" >"$copies/$name"
+      show "$sha:procedures/$name" >"$copies/$name"
       count=$((count + 1))
     done <<<"$names"
     echo "docs/playbook/: $count procedures"
@@ -109,6 +107,9 @@ if [ "$mode" = sync ]; then
         || warn "docs/playbook/$(basename "$f") is not in the playbook any more: ask Arsenii before deleting it"
     done
   fi
+
+  cat "$tmp" >"$agents"
+  echo "AGENTS.md: shared block from playbook@$sha"
   exit 0
 fi
 
@@ -119,7 +120,7 @@ problem() {
 }
 
 if $self; then
-  diff -q <(block) "$playbook/rules.md" >/dev/null \
+  diff -q <(block) <(awk 1 "$playbook/rules.md") >/dev/null \
     || problem "the shared block in AGENTS.md differs from rules.md: run make sync-rules"
   [ "$errors" = 0 ] || exit 1
   echo "AGENTS.md matches rules.md"
@@ -130,7 +131,8 @@ sha=$(sed -nE "${begin_n}s/.*Kapakac\/playbook@([0-9a-f]{40}).*/\1/p" "$agents")
 pb cat-file -e "$sha^{commit}" 2>/dev/null \
   || fail "playbook commit $sha not found: fetch the full playbook history, or the block was never synced (run make sync-rules)"
 
-diff -q <(block) <(pb show "$sha:rules.md") >/dev/null \
+pb cat-file -e "$sha:rules.md" 2>/dev/null || fail "playbook@$sha has no rules.md: the marker points at a wrong commit"
+diff -q <(block) <(show "$sha:rules.md") >/dev/null \
   || problem "the shared block in AGENTS.md differs from rules.md at playbook@$sha: change the playbook, then run make sync-rules"
 
 names=$(procedure_names "$sha")
@@ -138,7 +140,7 @@ while read -r name; do
   [ -n "$name" ] || continue
   if [ ! -f "$copies/$name" ]; then
     problem "docs/playbook/$name is missing: run make sync-rules"
-  elif ! diff -q "$copies/$name" <(pb show "$sha:procedures/$name") >/dev/null; then
+  elif ! diff -q "$copies/$name" <(show "$sha:procedures/$name") >/dev/null; then
     problem "docs/playbook/$name differs from playbook@$sha: change the playbook, then run make sync-rules"
   fi
 done <<<"$names"
@@ -151,6 +153,9 @@ done
 [ "$errors" = 0 ] || exit 1
 
 head_sha=$(pb rev-parse HEAD)
-pb diff --quiet "$sha" "$head_sha" -- rules.md procedures \
-  || warn "the playbook has newer rules than $sha (now $head_sha): run make sync-rules in a separate PR"
+if ! pb merge-base --is-ancestor "$sha" "$head_sha"; then
+  warn "the playbook clone (at $head_sha) does not contain $sha on its branch: update the clone before syncing"
+elif ! pb diff --quiet "$sha" "$head_sha" -- rules.md procedures; then
+  warn "the playbook has newer rules than $sha (now $head_sha): run make sync-rules in a separate PR"
+fi
 echo "AGENTS.md and docs/playbook/ match playbook@$sha"
