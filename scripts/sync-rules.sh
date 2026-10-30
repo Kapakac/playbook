@@ -26,13 +26,12 @@ copies=$project/docs/playbook
 begin_re='^<!-- playbook:begin playbook@[0-9a-f]{40} '
 end_line='<!-- playbook:end -->'
 
-self=false
-[ "$project" != "$playbook" ] || self=true
-
 fail() {
   echo "sync-rules: $*" >&2
   exit 1
 }
+
+[ "$project" != "$playbook" ] || fail "run it from a project repository, not from the playbook itself"
 
 warn() {
   if [ "${GITHUB_ACTIONS:-}" = true ]; then
@@ -71,11 +70,10 @@ show() {
 if [ "$mode" = sync ]; then
   if ! pb diff --quiet HEAD -- rules.md procedures \
     || [ -n "$(pb ls-files --others --exclude-standard -- procedures)" ]; then
-    $self || fail "the playbook clone has uncommitted changes in rules.md or procedures/: commit them first"
+    fail "the playbook clone has uncommitted changes in rules.md or procedures/: commit them first"
   fi
   sha=$(pb rev-parse HEAD)
-  ! $self || sha=0000000000000000000000000000000000000000
-  if ! $self && pb rev-parse --verify --quiet origin/main >/dev/null; then
+  if pb rev-parse --verify --quiet origin/main >/dev/null; then
     GIT_TERMINAL_PROMPT=0 pb fetch --quiet origin main 2>/dev/null || warn "git fetch of the playbook failed"
     pb merge-base --is-ancestor "$sha" origin/main \
       || warn "playbook HEAD $sha is not in origin/main: sync from an up-to-date main (git -C $playbook pull)"
@@ -86,28 +84,26 @@ if [ "$mode" = sync ]; then
   {
     head -n "$((begin_n - 1))" "$agents"
     echo "<!-- playbook:begin playbook@$sha (не править руками, обновлять: make sync-rules) -->"
-    if $self; then awk 1 "$playbook/rules.md"; else show "$sha:rules.md"; fi
+    show "$sha:rules.md"
     echo "$end_line"
     tail -n "+$((end_n + 1))" "$agents"
   } >"$tmp"
 
   # Procedures go first so that a failure leaves the old marker, and check keeps pointing at the old commit.
-  if ! $self; then
-    mkdir -p "$copies"
-    names=$(procedure_names "$sha")
-    count=0
-    while read -r name; do
-      [ -n "$name" ] || continue
-      show "$sha:procedures/$name" >"$copies/$name"
-      count=$((count + 1))
-    done <<<"$names"
-    echo "docs/playbook/: $count procedures"
-    for f in "$copies"/*; do
-      [ -e "$f" ] || continue
-      grep -qxF "$(basename "$f")" <<<"$names" \
-        || warn "docs/playbook/$(basename "$f") is not in the playbook any more: ask Arsenii before deleting it"
-    done
-  fi
+  mkdir -p "$copies"
+  names=$(procedure_names "$sha")
+  count=0
+  while read -r name; do
+    [ -n "$name" ] || continue
+    show "$sha:procedures/$name" >"$copies/$name"
+    count=$((count + 1))
+  done <<<"$names"
+  echo "docs/playbook/: $count procedures"
+  for f in "$copies"/*; do
+    [ -e "$f" ] || continue
+    grep -qxF "$(basename "$f")" <<<"$names" \
+      || warn "docs/playbook/$(basename "$f") is not in the playbook any more: ask the owner before deleting it"
+  done
 
   cat "$tmp" >"$agents"
   echo "AGENTS.md: shared block from playbook@$sha"
@@ -119,14 +115,6 @@ problem() {
   echo "sync-rules: $*" >&2
   errors=$((errors + 1))
 }
-
-if $self; then
-  diff -q <(block) <(awk 1 "$playbook/rules.md") >/dev/null \
-    || problem "the shared block in AGENTS.md differs from rules.md: run make sync-rules"
-  [ "$errors" = 0 ] || exit 1
-  echo "AGENTS.md matches rules.md"
-  exit 0
-fi
 
 sha=$(sed -nE "${begin_n}s/.*playbook@([0-9a-f]{40}).*/\1/p" "$agents")
 pb cat-file -e "$sha^{commit}" 2>/dev/null \

@@ -131,17 +131,13 @@ cp "$pb/templates/AGENTS.md" "$work/never/AGENTS.md"
 check_fails "check fails on a never-synced block" "$pb/scripts/sync-rules.sh" --check "$work/never"
 
 cp "$pb/templates/AGENTS.md" "$pb/AGENTS.md"
-printf '## Rules\n\n- one\n- two\n- three\n' >"$pb/rules.md"
-git -C "$pb" add -A && git -C "$pb" commit -q -m "self agents"
+check_fails "sync refuses to run on the playbook itself" "$pb/scripts/sync-rules.sh" "$pb"
+rm "$pb/AGENTS.md"
+
 printf '## Rules\n\n- dirty\n' >"$pb/rules.md"
 mkdir -p "$work/dirty"
 check_fails "init refuses a dirty playbook" "$pb/init.sh" "$work/dirty" x
 check "init copies nothing from a dirty playbook" test ! -e "$work/dirty/AGENTS.md"
-check_fails "self check fails before sync" "$pb/scripts/sync-rules.sh" --check "$pb"
-check "self sync takes uncommitted rules.md" "$pb/scripts/sync-rules.sh" "$pb"
-check "self check passes" "$pb/scripts/sync-rules.sh" --check "$pb"
-check "self sync does not copy procedures" test ! -e "$pb/docs/playbook"
-check "self marker has no commit" grep -q 'playbook@0000000000000000000000000000000000000000 ' "$pb/AGENTS.md"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures test(s) failed" >&2
