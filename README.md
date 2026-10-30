@@ -1,1 +1,52 @@
-# dev.j-k
+# Playbook
+
+Общие правила для всех проектов Арсения, одинаковые для любого агента (Claude Code, Codex, Cursor, Copilot и других). Своих правил у проектов остаётся только то, что касается их самих.
+
+## Что здесь
+
+- `rules.md` — общие правила.
+- `procedures/` — процедуры по шагам: подготовить PR, «кря» в Telegram, ящик `/quack`, новый тред.
+- `templates/` — стартовые файлы проекта.
+- `init.sh` — завести новый проект из шаблонов.
+- `scripts/sync-rules.sh` — синхронизация и проверка правил в репе проекта.
+
+## Как это устроено в репе проекта
+
+- `AGENTS.md` — инструкции для всех агентов. Сверху раздел «Проект»: устройство, команды, параметры для общих правил и правила самого проекта. Ниже между метками `<!-- playbook:begin … -->` и `<!-- playbook:end -->` — копия `rules.md`. В метке записан коммит playbook, из которого взята копия.
+- `CLAUDE.md` — одна строка `@AGENTS.md`. Claude Code сам `AGENTS.md` не читает, а так подключает его целиком ([документация](https://code.claude.com/docs/en/memory)).
+- `docs/playbook/` — копия `procedures/`.
+- `make sync-rules` — обновить блок и `docs/playbook/` из клона playbook рядом с проектом (по умолчанию `../playbook`).
+- `make check-rules` и workflow `.github/workflows/rules.yml` — CI падает, если блок или процедуры поправили руками, и предупреждает (не падает), если в playbook появились правила новее.
+
+Почему копия, а не ссылка на playbook: Codex и часть других агентов не умеют подключать файл из `AGENTS.md` ссылкой, им нужен текст в самом файле.
+
+## Новый проект
+
+```sh
+git clone https://github.com/Kapakac/playbook ../playbook   # если клона ещё нет
+../playbook/init.sh . "Название проекта"
+```
+
+`init.sh` копирует шаблоны, не трогая уже существующие файлы, и сразу делает `make sync-rules`. Потом заполни раздел «Проект» в `AGENTS.md`, `docs/stack.md` и `docs/roadmap.md`.
+
+## Перевести существующий проект
+
+Делается в собственном проекте той репы, отдельным PR.
+
+1. Создать `AGENTS.md` из `templates/AGENTS.md`, перенести туда своё из старого `CLAUDE.md`, общие правила оттуда убрать.
+2. `CLAUDE.md` заменить одной строкой `@AGENTS.md`.
+3. Добавить в `Makefile` цели `sync-rules` и `check-rules` из `templates/Makefile`, а в CI — `templates/.github/workflows/rules.yml`.
+4. `make sync-rules`, проверить `make check-rules`.
+5. Скиллы `.claude/skills/prepare-pr` и `send-to-group`, если есть, свести к ссылке на `docs/playbook/`.
+6. Сократить инструкцию проекта в claude.ai до своего (правит Арсений).
+
+## Поменять общие правила
+
+1. PR в playbook: правка `rules.md` или `procedures/`, затем `make sync-rules` здесь же, чтобы `AGENTS.md` этой репы совпадал.
+2. После мёрджа в каждом проекте: `git -C ../playbook pull`, `make sync-rules`, отдельный PR.
+
+## Другие агенты
+
+- Codex, Cursor, GitHub Copilot (coding agent) читают `AGENTS.md` сами.
+- Gemini CLI по умолчанию читает `GEMINI.md`; чтобы читал `AGENTS.md`, нужна настройка `context.fileName` в `settings.json`.
+- Codex читает не больше 32 КиБ инструкций на все `AGENTS.md` вместе.

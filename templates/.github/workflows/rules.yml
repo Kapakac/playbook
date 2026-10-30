@@ -1,0 +1,21 @@
+name: rules
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Kapakac/playbook
+          path: .playbook
+          fetch-depth: 0
+      - run: make check-rules PLAYBOOK=.playbook
