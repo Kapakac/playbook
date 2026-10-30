@@ -134,6 +134,17 @@ cp "$pb/templates/AGENTS.md" "$pb/AGENTS.md"
 check_fails "sync refuses to run on the playbook itself" "$pb/scripts/sync-rules.sh" "$pb"
 rm "$pb/AGENTS.md"
 
+git clone -q --bare "$pb" "$work/origin.git"
+git -C "$pb" remote add origin "$work/origin.git"
+git -C "$pb" fetch -q origin
+check_output "no behind warning for an up-to-date clone" 1 "behind origin/main" sync
+git clone -q "$work/origin.git" "$work/other"
+printf '## Rules\n\n- newer\n' >"$work/other/rules.md"
+git -C "$work/other" commit -q -am newer
+git -C "$work/other" push -q origin main
+check_output "sync warns when the clone is behind origin/main" 0 "behind origin/main" sync
+git -C "$pb" remote remove origin
+
 printf '## Rules\n\n- dirty\n' >"$pb/rules.md"
 mkdir -p "$work/dirty"
 check_fails "init refuses a dirty playbook" "$pb/init.sh" "$work/dirty" x
