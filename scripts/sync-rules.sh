@@ -75,8 +75,12 @@ if [ "$mode" = sync ]; then
   sha=$(pb rev-parse HEAD)
   if pb rev-parse --verify --quiet origin/main >/dev/null; then
     GIT_TERMINAL_PROMPT=0 pb fetch --quiet origin main 2>/dev/null || warn "git fetch of the playbook failed"
-    pb merge-base --is-ancestor "$sha" origin/main \
-      || warn "playbook HEAD $sha is not in origin/main: sync from an up-to-date main (git -C $playbook pull)"
+    update_cmd="git -C $playbook fetch origin main && git -C $playbook checkout --detach origin/main"
+    if ! pb merge-base --is-ancestor "$sha" origin/main; then
+      warn "playbook HEAD $sha is not in origin/main: sync from an up-to-date main ($update_cmd)"
+    elif ! pb diff --quiet "$sha" origin/main -- rules.md procedures; then
+      warn "playbook HEAD $sha is behind origin/main: update the clone ($update_cmd) and sync again"
+    fi
   fi
 
   tmp=$(mktemp)
