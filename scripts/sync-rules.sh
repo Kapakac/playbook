@@ -23,7 +23,7 @@ playbook=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 project=$(cd "${1:-.}" && pwd -P)
 agents=$project/AGENTS.md
 copies=$project/docs/playbook
-begin_re='^<!-- playbook:begin Kapakac/playbook@[0-9a-f]{40} '
+begin_re='^<!-- playbook:begin playbook@[0-9a-f]{40} '
 end_line='<!-- playbook:end -->'
 
 self=false
@@ -47,8 +47,9 @@ pb() {
 }
 
 [ -f "$agents" ] || fail "$agents not found: create it from templates/AGENTS.md or run init.sh"
-[ "$(grep -cE "$begin_re" "$agents")" = 1 ] && [ "$(grep -cxF "$end_line" "$agents")" = 1 ] \
-  || fail "AGENTS.md must contain exactly one begin marker and one end marker (see templates/AGENTS.md)"
+if [ "$(grep -cE "$begin_re" "$agents")" != 1 ] || [ "$(grep -cxF "$end_line" "$agents")" != 1 ]; then
+  fail "AGENTS.md must contain exactly one begin marker and one end marker (see templates/AGENTS.md)"
+fi
 begin_n=$(grep -nE "$begin_re" "$agents" | cut -d: -f1)
 end_n=$(grep -nxF "$end_line" "$agents" | cut -d: -f1)
 [ "$begin_n" -lt "$end_n" ] || fail "the begin marker must come before the end marker in AGENTS.md"
@@ -84,7 +85,7 @@ if [ "$mode" = sync ]; then
   trap 'rm -f "$tmp"' EXIT
   {
     head -n "$((begin_n - 1))" "$agents"
-    echo "<!-- playbook:begin Kapakac/playbook@$sha (не править руками, обновлять: make sync-rules) -->"
+    echo "<!-- playbook:begin playbook@$sha (не править руками, обновлять: make sync-rules) -->"
     if $self; then awk 1 "$playbook/rules.md"; else show "$sha:rules.md"; fi
     echo "$end_line"
     tail -n "+$((end_n + 1))" "$agents"
@@ -127,7 +128,7 @@ if $self; then
   exit 0
 fi
 
-sha=$(sed -nE "${begin_n}s/.*Kapakac\/playbook@([0-9a-f]{40}).*/\1/p" "$agents")
+sha=$(sed -nE "${begin_n}s/.*playbook@([0-9a-f]{40}).*/\1/p" "$agents")
 pb cat-file -e "$sha^{commit}" 2>/dev/null \
   || fail "playbook commit $sha not found: fetch the full playbook history, or the block was never synced (run make sync-rules)"
 

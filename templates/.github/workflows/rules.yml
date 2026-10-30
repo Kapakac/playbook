@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: Kapakac/playbook
+          repository: ${{ github.repository_owner }}/playbook
           path: .playbook
           fetch-depth: 0
       - run: make check-rules PLAYBOOK=.playbook

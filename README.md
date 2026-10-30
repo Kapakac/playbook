@@ -1,6 +1,6 @@
 # Playbook
 
-Общие правила для всех проектов Арсения, одинаковые для любого агента (Claude Code, Codex, Cursor, Copilot и других). Своих правил у проектов остаётся только то, что касается их самих.
+Общие правила для всех проектов владельца, одинаковые для любого агента (Claude Code, Codex, Cursor, Copilot и других). Своих правил у проектов остаётся только то, что касается их самих.
 
 ## Что здесь
 
@@ -24,7 +24,7 @@
 ## Новый проект
 
 ```sh
-git clone https://github.com/Kapakac/playbook ../playbook   # если клона ещё нет
+git clone https://github.com/<владелец>/playbook ../playbook   # если клона ещё нет
 ../playbook/init.sh . "Название проекта"
 ```
 
@@ -39,7 +39,7 @@ git clone https://github.com/Kapakac/playbook ../playbook   # если клон�
 3. Добавить в `Makefile` цели `sync-rules` и `check-rules` из `templates/Makefile`, а в CI — `templates/.github/workflows/rules.yml`.
 4. `make sync-rules`, проверить `make check-rules`.
 5. Скиллы `.claude/skills/prepare-pr` и `send-to-group`, если есть, свести к ссылке на `docs/playbook/`.
-6. Сократить инструкцию проекта в claude.ai до своего (правит Арсений).
+6. Сократить инструкцию проекта в claude.ai до своего (правит владелец).
 
 ## Поменять общие правила
 
