@@ -1,0 +1,89 @@
+name: rules-update
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency: rules-update
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: project
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/playbook
+          path: playbook
+          fetch-depth: 0
+          persist-credentials: false
+      - id: before
+        working-directory: project
+        run: echo "sha=$(sed -nE 's/^<!-- playbook:begin playbook@([0-9a-f]{40}) .*/\1/p' AGENTS.md | head -n 1)" >>"$GITHUB_OUTPUT"
+      - run: ../playbook/scripts/update-rules.sh .
+        working-directory: project
+      - name: Open or update the pull request
+        working-directory: project
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD: ${{ steps.before.outputs.sha }}
+          BASE: ${{ github.ref_name }}
+          PLAYBOOK_REPO: ${{ github.repository_owner }}/playbook
+        run: |
+          paths=(AGENTS.md docs/playbook .github/pull_request_template.md)
+          if [ -z "$(git status --porcelain -- "${paths[@]}")" ]; then
+            echo "The shared rules are up to date"
+            exit 0
+          fi
+          key=$(sed -nE 's/^- Ключ проекта: `([^`]+)`.*/\1/p' AGENTS.md | head -n 1)
+          author=$(sed -nE 's/^- Автор коммитов: `([^`]+)`.*/\1/p' AGENTS.md | head -n 1)
+          if [ -z "$key" ] || [ -z "$author" ]; then
+            echo "::error::AGENTS.md needs the «Ключ проекта» and «Автор коммитов» lines with values in backticks"
+            exit 1
+          fi
+          new=$(git -C ../playbook rev-parse HEAD)
+          branch=$key-rules-auto
+
+          {
+            echo "## Что изменено"
+            echo
+            if [ -n "$OLD" ] && [ "$OLD" != 0000000000000000000000000000000000000000 ]; then
+              echo "- Общие правила и \`docs/playbook/\` обновлены из playbook: [${OLD:0:7}…${new:0:7}](https://github.com/$PLAYBOOK_REPO/compare/$OLD...$new)."
+            else
+              echo "- Общие правила и \`docs/playbook/\` обновлены из playbook@${new:0:7}."
+            fi
+            if [ -n "$(git status --porcelain -- .github/pull_request_template.md)" ]; then
+              echo "- В \`.github/pull_request_template.md\` добавлены новые строки из шаблона playbook: проверь, что они встали на место."
+            fi
+            echo
+            echo "## Проверки"
+            echo
+            echo "- [x] \`make check-rules\` прошёл в workflow \`rules-update\`."
+            echo "- [ ] CI проекта: PR открыт встроенным токеном GitHub Actions, поэтому проверки ждут кнопки «Approve workflows to run» в PR."
+            echo
+            echo "## Не сделано"
+            echo
+            echo "- Строки шаблона PR, которые в playbook убрали или изменили, workflow не трогает. Если они есть, напиши агенту проекта «Обнови общие правила из playbook»."
+          } >"$RUNNER_TEMP/body.md"
+
+          git switch -c "$branch"
+          git add -- "${paths[@]}"
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit --author="$author" -m "Update shared rules from playbook@${new:0:7}"
+          git push --force origin "$branch"
+
+          pr=$(gh pr list --head "$branch" --base "$BASE" --state open --json number --jq '.[0].number')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base "$BASE" --head "$branch" --title "$key: обновить общие правила" --body-file "$RUNNER_TEMP/body.md"
+          fi

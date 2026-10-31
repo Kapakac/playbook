@@ -43,6 +43,7 @@ mkdir -p "$pb/scripts" "$pb/procedures"
 cp -R "$root/templates" "$pb/templates"
 cp "$root/init.sh" "$pb/init.sh"
 cp "$root/scripts/sync-rules.sh" "$pb/scripts/sync-rules.sh"
+cp "$root/scripts/update-rules.sh" "$pb/scripts/update-rules.sh"
 printf '## Rules\n\n- one\n' >"$pb/rules.md"
 printf '# A\n' >"$pb/procedures/a.md"
 printf '# B\n' >"$pb/procedures/b.md"
@@ -57,7 +58,8 @@ verify() { "$pb/scripts/sync-rules.sh" --check "$proj"; }
 block() { awk '/^<!-- playbook:begin /{on=1; next} /^<!-- playbook:end -->$/{on=0} on' "$proj/AGENTS.md"; }
 
 check "init creates a project" "$pb/init.sh" "$proj" 'Name & a/b'
-check "init copies templates" test -f "$proj/CLAUDE.md" -a -f "$proj/docs/duck-log.md" -a -f "$proj/.github/workflows/rules.yml"
+check "init copies templates" test -f "$proj/CLAUDE.md" -a -f "$proj/docs/duck-log.md" -a -f "$proj/.github/workflows/rules.yml" \
+  -a -f "$proj/.github/workflows/rules-update.yml"
 check "CLAUDE.md imports AGENTS.md" grep -qx '@AGENTS.md' "$proj/CLAUDE.md"
 check "project name substituted literally" grep -qx '# Name & a/b' "$proj/AGENTS.md"
 check "block equals rules.md" diff <(block) "$pb/rules.md"
@@ -144,6 +146,48 @@ git -C "$work/other" commit -q -am newer
 git -C "$work/other" push -q origin main
 check_output "sync warns when the clone is behind origin/main" 0 "behind origin/main" sync
 git -C "$pb" remote remove origin
+
+update() { "$pb/scripts/update-rules.sh" "$proj"; }
+marker() { sed -nE 's/^<!-- playbook:begin playbook@([0-9a-f]{40}) .*/\1/p' "$proj/AGENTS.md"; }
+tpl=$proj/.github/pull_request_template.md
+cp "$proj/AGENTS.md" "$work/agents.before"
+check_output "update does nothing when the playbook has nothing new" 0 "nothing new" update
+check "update leaves AGENTS.md as it was" cmp "$proj/AGENTS.md" "$work/agents.before"
+
+echo readme >"$pb/README.md"
+git -C "$pb" add -A
+git -C "$pb" commit -q -m "readme only"
+check_output "update ignores playbook commits outside the rules" 0 "nothing new" update
+check "marker kept after a readme-only commit" test "$(marker)" = "$sha3"
+
+sed -i.tmp 's/^- \[ \] CI зелёный$/- [ ] CI зелёный\
+- [ ] project check/' "$tpl" && rm -f "$tpl.tmp"
+sed -i.tmp '/^Что нашлось и что исправлено\.$/d' "$tpl" && rm -f "$tpl.tmp"
+sed -i.tmp 's/^- \[ \] CI зелёный$/- [ ] CI зелёный\
+- [ ] new check/' "$pb/templates/.github/pull_request_template.md"
+rm -f "$pb/templates/.github/pull_request_template.md.tmp"
+printf '\n## New section\n' >>"$pb/templates/.github/pull_request_template.md"
+git -C "$pb" commit -q -am "template lines"
+sha4=$(git -C "$pb" rev-parse HEAD)
+check "update syncs after a template change" update
+check "marker moves to the template commit" test "$(marker)" = "$sha4"
+after_ci() { grep -A1 -xF -- '- [ ] CI зелёный' "$tpl" | tail -n 1; }
+check "new template line placed after its neighbour" test "$(after_ci)" = '- [ ] new check'
+check "project template line kept" grep -qxF -- '- [ ] project check' "$tpl"
+check "removed template line not added back" test "$(grep -cxF 'Что нашлось и что исправлено.' "$tpl")" = 0
+check "new section appended" test "$(tail -n 2 "$tpl" | head -n 1)" = "" -a "$(tail -n 1 "$tpl")" = "## New section"
+cp "$tpl" "$work/tpl.after"
+check_output "second update has nothing new" 0 "nothing new" update
+check "second update keeps the template" cmp "$tpl" "$work/tpl.after"
+
+printf '## Rules\n\n- updated\n' >"$pb/rules.md"
+git -C "$pb" commit -q -am "rules for update"
+sha5=$(git -C "$pb" rev-parse HEAD)
+rm "$tpl"
+check "update syncs new rules" update
+check "update moves the marker" test "$(marker)" = "$sha5"
+check "update block equals rules.md" diff <(block) "$pb/rules.md"
+check "update adds a missing PR template" cmp "$tpl" "$pb/templates/.github/pull_request_template.md"
 
 printf '## Rules\n\n- dirty\n' >"$pb/rules.md"
 mkdir -p "$work/dirty"
