@@ -2,7 +2,7 @@ name: rules-update
 
 on:
   schedule:
-    - cron: "17 5 * * 1"
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:
@@ -79,7 +79,14 @@ jobs:
           git -c user.name='github-actions[bot]' \
             -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit --author="$author" -m "Update shared rules from playbook@${new:0:7}"
-          git push --force origin "$branch"
+          # Runs while the PR waits for a merge would otherwise re-push the same files daily and reset its checks.
+          if git fetch --quiet origin "$branch" 2>/dev/null \
+            && [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse 'FETCH_HEAD^{tree}')" ] \
+            && [ "$(git rev-parse HEAD^)" = "$(git rev-parse FETCH_HEAD^)" ]; then
+            echo "The branch $branch already has these changes"
+          else
+            git push --force origin "$branch"
+          fi
 
           pr=$(gh pr list --head "$branch" --base "$BASE" --state open --json number --jq '.[0].number')
           if [ -n "$pr" ]; then
