@@ -2,6 +2,7 @@
 # Usage: init.sh <project-dir> <project-name>
 #
 # Copies templates/ into the project without overwriting existing files, then syncs the shared rules.
+# templates/shared/ is the root of the separate shared branch, not part of main, so it is skipped.
 set -euo pipefail
 
 if [ $# -ne 2 ]; then
@@ -41,7 +42,7 @@ while read -r f; do
     AGENTS.md) created_agents=true ;;
     Makefile) created_makefile=true ;;
   esac
-done < <(cd "$playbook/templates" && find . -type f | sort)
+done < <(cd "$playbook/templates" && find . -path ./shared -prune -o -type f -print | sort)
 
 if $created_agents; then
   content=$(cat "$project/AGENTS.md")
