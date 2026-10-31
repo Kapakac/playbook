@@ -60,6 +60,7 @@ block() { awk '/^<!-- playbook:begin /{on=1; next} /^<!-- playbook:end -->$/{on=
 check "init creates a project" "$pb/init.sh" "$proj" 'Name & a/b'
 check "init copies templates" test -f "$proj/CLAUDE.md" -a -f "$proj/docs/duck-log.md" -a -f "$proj/.github/workflows/rules.yml" \
   -a -f "$proj/.github/workflows/rules-update.yml" -a -f "$proj/.github/workflows/ci.yml"
+check "init skips the shared branch template" test ! -e "$proj/shared"
 check "CLAUDE.md imports AGENTS.md" grep -qx '@AGENTS.md' "$proj/CLAUDE.md"
 check "project name substituted literally" grep -qx '# Name & a/b' "$proj/AGENTS.md"
 check "block equals rules.md" diff <(block) "$pb/rules.md"
