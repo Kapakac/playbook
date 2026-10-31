@@ -59,7 +59,7 @@ block() { awk '/^<!-- playbook:begin /{on=1; next} /^<!-- playbook:end -->$/{on=
 
 check "init creates a project" "$pb/init.sh" "$proj" 'Name & a/b'
 check "init copies templates" test -f "$proj/CLAUDE.md" -a -f "$proj/docs/duck-log.md" -a -f "$proj/.github/workflows/rules.yml" \
-  -a -f "$proj/.github/workflows/rules-update.yml"
+  -a -f "$proj/.github/workflows/rules-update.yml" -a -f "$proj/.github/workflows/ci.yml"
 check "CLAUDE.md imports AGENTS.md" grep -qx '@AGENTS.md' "$proj/CLAUDE.md"
 check "project name substituted literally" grep -qx '# Name & a/b' "$proj/AGENTS.md"
 check "block equals rules.md" diff <(block) "$pb/rules.md"
@@ -193,6 +193,48 @@ printf '## Rules\n\n- dirty\n' >"$pb/rules.md"
 mkdir -p "$work/dirty"
 check_fails "init refuses a dirty playbook" "$pb/init.sh" "$work/dirty" x
 check "init copies nothing from a dirty playbook" test ! -e "$work/dirty/AGENTS.md"
+
+repo=$work/changes
+git init -q -b main "$repo"
+cd_changes() { (cd "$repo" && "$root/scripts/ci-changes.sh" "$@"); }
+commit_files() {
+  local f
+  for f in "$@"; do
+    mkdir -p "$repo/$(dirname "$f")"
+    echo "$RANDOM" >>"$repo/$f"
+  done
+  git -C "$repo" add -A
+  git -C "$repo" commit -q -m change
+}
+commit_files main.go
+c0=$(git -C "$repo" rev-parse HEAD)
+commit_files README.md docs/a.md docs/img.png shared/x.md .github/pull_request_template.md
+c1=$(git -C "$repo" rev-parse HEAD)
+check_output "docs-only change is not code" 0 '^code=false$' cd_changes "$c0" "$c1"
+check_output "head defaults to HEAD" 0 '^code=false$' cd_changes "$c0"
+check_output "--code glob overrides docs" 0 '^code=true$' cd_changes --code 'docs/*.png' "$c0"
+commit_files tests/fixtures/README.md
+check_output "nested .md outside docs is code" 0 '^code=true$' cd_changes "$c1"
+c2=$(git -C "$repo" rev-parse HEAD)
+commit_files .github/workflows/notes.md
+check_output ".md under .github subfolders is code" 0 '^code=true$' cd_changes "$c2"
+c3=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" mv main.go docs/main.md
+git -C "$repo" commit -q -m rename
+check_output "renaming code into docs is code" 0 '^code=true$' cd_changes "$c3"
+c4=$(git -C "$repo" rev-parse HEAD)
+commit_files "docs/новый файл.md"
+check_output "non-ASCII doc names are docs" 0 '^code=false$' cd_changes "$c4"
+check_output "zero base is code" 0 '^code=true$' cd_changes 0000000000000000000000000000000000000000
+check_output "empty base is code" 0 '^code=true$' cd_changes ''
+check_output "unknown base is code" 0 '^code=true$' cd_changes deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+check_output "empty diff is code" 0 '^code=true$' cd_changes HEAD
+git -C "$repo" checkout -q -b side "$c4"
+commit_files docs/side.md
+git -C "$repo" checkout -q main
+commit_files app.py
+check_output "base moved on with code: only the branch counts" 0 '^code=false$' cd_changes main side
+check_fails "no arguments is an error" cd_changes
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures test(s) failed" >&2
