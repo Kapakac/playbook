@@ -8,24 +8,25 @@
 # When the diff cannot be computed (empty or all-zero base, missing commit), prints code=true.
 set -euo pipefail
 
+usage() {
+  echo "usage: $0 [--code <glob>]... <base> [<head>]" >&2
+  exit 2
+}
+
 code_globs=()
 while [ $# -gt 0 ]; do
   case $1 in
     --code)
-      [ $# -ge 2 ] || {
-        echo "usage: $0 [--code <glob>]... <base> [<head>]" >&2
-        exit 2
-      }
+      [ $# -ge 2 ] || usage
       code_globs+=("$2")
       shift 2
       ;;
     *) break ;;
   esac
 done
-[ $# -ge 1 ] && [ $# -le 2 ] || {
-  echo "usage: $0 [--code <glob>]... <base> [<head>]" >&2
-  exit 2
-}
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+  usage
+fi
 base=$1
 head=${2:-HEAD}
 
