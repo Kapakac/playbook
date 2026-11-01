@@ -67,7 +67,9 @@ jobs:
             echo "## Проверки"
             echo
             echo "- [x] \`make check-rules\` прошёл в workflow \`rules-update\`."
-            echo "- [ ] CI проекта: PR открыт встроенным токеном GitHub Actions, поэтому проверки ждут кнопки «Approve workflows to run» в PR."
+            echo "- [ ] CI проекта не запускался: PR открыт встроенным токеном GitHub Actions."
+            echo
+            echo "Workflow мёрджит этот PR сам сразу после открытия. Если PR остался открытым, мёрдж не прошёл: причина — в логе запуска \`rules-update\`, PR мёрджит владелец."
             echo
             echo "## Не сделано"
             echo
@@ -92,5 +94,14 @@ jobs:
           if [ -n "$pr" ]; then
             gh pr edit "$pr" --body-file "$RUNNER_TEMP/body.md"
           else
-            gh pr create --base "$BASE" --head "$branch" --title "$key: обновить общие правила" --body-file "$RUNNER_TEMP/body.md"
+            pr=$(gh pr create --base "$BASE" --head "$branch" --title "$key: обновить общие правила" --body-file "$RUNNER_TEMP/body.md")
           fi
+
+          # Only shared docs change here and check-rules has passed above; GITHUB_TOKEN merges do not trigger deploy workflows.
+          for attempt in 1 2 3; do
+            if gh pr merge "$pr" --merge; then
+              exit 0
+            fi
+            [ "$attempt" -lt 3 ] && sleep 10
+          done
+          echo "::warning::Could not merge $pr, it stays open for the owner"
