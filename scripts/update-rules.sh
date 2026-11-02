@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: update-rules.sh [project-dir]
 #
-# For the scheduled workflow: syncs the shared rules if rules.md, procedures/ or the PR template
+# For the rules-update workflow: syncs the shared rules if rules.md, procedures/ or the PR template
 # changed in this playbook clone since the commit recorded in AGENTS.md, adds new lines of the
 # playbook PR template to the project's one, then checks the result.
 # Lines removed or changed in the playbook template are left to the agent.
