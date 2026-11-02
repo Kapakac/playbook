@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for init.sh and scripts/sync-rules.sh against a throwaway playbook clone.
+# Tests for init.sh and the scripts against a throwaway playbook clone.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
@@ -236,6 +236,29 @@ git -C "$repo" checkout -q main
 commit_files app.py
 check_output "base moved on with code: only the branch counts" 0 '^code=false$' cd_changes main side
 check_fails "no arguments is an error" cd_changes
+
+stub=$work/stub
+mkdir -p "$stub"
+cat >"$stub/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "GH_TOKEN=$GH_TOKEN" "$@" >"$STUB_LOG"
+exit "${STUB_EXIT:-0}"
+STUB
+chmod +x "$stub/gh"
+export STUB_LOG=$work/gh.log
+notify() { env -u RULES_NOTIFY_REPO -u RULES_NOTIFY_TOKEN "$@" PATH="$stub:$PATH" "$root/scripts/notify-rules.sh"; }
+rm -f "$STUB_LOG"
+check_output "notify warns without secrets" 0 '^::warning::' notify
+check_output "notify warns without the token" 0 '^::warning::' notify RULES_NOTIFY_REPO=o/r RULES_NOTIFY_TOKEN=
+check_output "notify warns without the repo" 0 '^::warning::' notify RULES_NOTIFY_TOKEN=t
+check "notify does not call GitHub without both secrets" test ! -e "$STUB_LOG"
+check "notify starts the workflow" notify RULES_NOTIFY_REPO=o/r RULES_NOTIFY_TOKEN=t
+check "notify posts to the dispatch endpoint on main with the token" diff "$STUB_LOG" <(printf '%s\n' GH_TOKEN=t api --method POST --silent \
+  repos/o/r/actions/workflows/rules-update-all.yml/dispatches -f ref=main)
+check_fails "notify fails when the call fails" notify STUB_EXIT=1 RULES_NOTIFY_REPO=o/r RULES_NOTIFY_TOKEN=t
+notify_failed() { notify "$@" || true; }
+check_output "notify reports the failure as an error" 0 '^::error::' notify_failed STUB_EXIT=1 RULES_NOTIFY_REPO=o/r RULES_NOTIFY_TOKEN=t
+check_fails "notify rejects arguments" "$root/scripts/notify-rules.sh" x
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures test(s) failed" >&2
