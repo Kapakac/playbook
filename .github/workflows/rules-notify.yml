@@ -1,0 +1,27 @@
+name: rules-notify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - rules.md
+      - procedures/**
+      - templates/.github/pull_request_template.md
+      - .github/workflows/rules-notify.yml
+      - scripts/notify-rules.sh
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - env:
+          RULES_NOTIFY_REPO: ${{ secrets.RULES_NOTIFY_REPO }}
+          RULES_NOTIFY_TOKEN: ${{ secrets.RULES_NOTIFY_TOKEN }}
+        run: scripts/notify-rules.sh
