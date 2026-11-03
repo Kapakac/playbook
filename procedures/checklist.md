@@ -11,7 +11,7 @@
 
 1. Обнови клон playbook (README playbook, раздел «Клон playbook»).
 2. Найди в разделе «Проект» `AGENTS.md` строку «Список playbook сверен: `playbook@<коммит>`». Строки нет — список ни разу не сверяли: переходи к сверке.
-3. Посмотри `git -C ../playbook diff <коммит> origin/main -- README.md templates/`. Если в диффе нет раздела README «Что должно быть в проекте» и файлов `templates/`, список не менялся: дальше ничего не делай и ничего не пиши. Если коммита нет в клоне (клон неполный), сначала `git -C ../playbook fetch --depth=500 origin main`; всё равно нет — проходи список целиком.
+3. Посмотри `git -C ../playbook diff <коммит> origin/main -- README.md templates/ procedures/no-repo-agent.md`. Если в диффе нет раздела README «Что должно быть в проекте», файлов `templates/` и блока из `no-repo-agent.md`, список не менялся: дальше ничего не делай и ничего не пиши. Если коммита нет в клоне (клон неполный), сначала `git -C ../playbook fetch --depth=500 origin main`; всё равно нет — проходи список целиком.
 
 ## Сверка
 
