@@ -64,7 +64,8 @@ while IFS= read -r author; do
   fi
 done < <(git log --format='%an <%ae>' "$base..$head" | sort -u)
 
-traces='co-authored-by:.*('"$agent"'|gpt)|claude-session|generated (with|by)|requested by|claude\.ai/code|chatgpt\.com/codex|🤖'
+# Anchored to the start of a line so that text about these lines (a rules PR, a how-to) still passes.
+traces='^[[:space:]_*]*(co-authored-by:.*('"$agent"'|gpt)|claude-session:|requested by)|generated (with|by) \[?(claude|codex|copilot|chatgpt)|claude\.ai/code|chatgpt\.com/codex'
 if git log --format=%B "$base..$head" | grep -qiE "$traces"; then
   err "a commit message carries agent traces (Co-Authored-By, Claude-Session, Generated with …): rewrite it (rules.md, «Ветки, коммиты и PR»)"
 fi

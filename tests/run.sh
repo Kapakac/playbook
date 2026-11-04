@@ -286,6 +286,8 @@ check_fails "title without the key fails" check_pr PR_BRANCH=shop-cart-69d429 PR
 check_fails "title with another key fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shopping: корзина' PR_BODY=
 check_fails "PR text with a session link fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=$'text\n\nhttps://claude.ai/code/session_1'
 check_fails "PR text with Generated with fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY='🤖 Generated with Claude Code'
+check_fails "PR text with a Requested by line fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=$'text\n\n_Requested by @owner_'
+check "PR text that only talks about the traces passes" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY='Проверка ловит Co-Authored-By, Claude-Session, «Generated with» и «Requested by» в описании.'
 check_pr_key() { (cd "$pr" && env PR_BRANCH=x-1-y PR_TITLE='x-1: y' PR_BODY= "$root/scripts/check-pr.sh" --key x "$pr_base" HEAD); }
 check "explicit key overrides AGENTS.md" check_pr_key
 pr_commit "fix" "Claude <noreply@anthropic.com>"
