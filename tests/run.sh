@@ -59,7 +59,8 @@ block() { awk '/^<!-- playbook:begin /{on=1; next} /^<!-- playbook:end -->$/{on=
 
 check "init creates a project" "$pb/init.sh" "$proj" 'Name & a/b'
 check "init copies templates" test -f "$proj/CLAUDE.md" -a -f "$proj/docs/duck-log.md" -a -f "$proj/.github/workflows/rules.yml" \
-  -a -f "$proj/.github/workflows/rules-update.yml" -a -f "$proj/.github/workflows/ci.yml"
+  -a -f "$proj/.github/workflows/rules-update.yml" -a -f "$proj/.github/workflows/ci.yml" \
+  -a -f "$proj/.claude/settings.json" -a -x "$proj/.claude/hooks/check-commit.sh"
 check "init skips the shared branch template" test ! -e "$proj/shared"
 check "CLAUDE.md imports AGENTS.md" grep -qx '@AGENTS.md' "$proj/CLAUDE.md"
 check "project name substituted literally" grep -qx '# Name & a/b' "$proj/AGENTS.md"
@@ -259,6 +260,62 @@ check_fails "notify fails when the call fails" notify STUB_EXIT=1 RULES_NOTIFY_R
 notify_failed() { notify "$@" || true; }
 check_output "notify reports the failure as an error" 0 '^::error::' notify_failed STUB_EXIT=1 RULES_NOTIFY_REPO=o/r RULES_NOTIFY_TOKEN=t
 check_fails "notify rejects arguments" "$root/scripts/notify-rules.sh" x
+
+pr=$work/pr
+git init -q -b main "$pr"
+# shellcheck disable=SC2016
+printf -- '- Ключ проекта: `shop` — в именах веток.\n- Автор коммитов: `Owner <1+owner@users.noreply.github.com>`.\n' >"$pr/AGENTS.md"
+git -C "$pr" add -A
+git -C "$pr" commit -q -m "init"
+pr_base=$(git -C "$pr" rev-parse HEAD)
+pr_commit() {
+  local message=$1 author=${2:-Owner <1+owner@users.noreply.github.com>}
+  echo "$RANDOM" >>"$pr/file"
+  git -C "$pr" add -A
+  git -C "$pr" commit -q --author="$author" -m "$message"
+}
+check_pr() { (cd "$pr" && env "$@" "$root/scripts/check-pr.sh" "$pr_base" HEAD); }
+pr_commit "add a thing"
+good=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY='## Что изменено')
+check "PR with a task number passes" check_pr "${good[@]}"
+check "PR outside tasks passes" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=
+check_output "branch from the environment only warns" 0 '^::warning::branch' check_pr PR_BRANCH=claude/thread-1 PR_TITLE='shop: корзина' PR_BODY=
+check_fails "branch without the key fails" check_pr PR_BRANCH=cart-69d429 PR_TITLE='shop: корзина' PR_BODY=
+check_fails "branch with capitals fails" check_pr PR_BRANCH=shop-Cart PR_TITLE='shop: корзина' PR_BODY=
+check_fails "title without the key fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='корзина' PR_BODY=
+check_fails "title with another key fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shopping: корзина' PR_BODY=
+check_fails "PR text with a session link fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=$'text\n\nhttps://claude.ai/code/session_1'
+check_fails "PR text with Generated with fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY='🤖 Generated with Claude Code'
+check_pr_key() { (cd "$pr" && env PR_BRANCH=x-1-y PR_TITLE='x-1: y' PR_BODY= "$root/scripts/check-pr.sh" --key x "$pr_base" HEAD); }
+check "explicit key overrides AGENTS.md" check_pr_key
+pr_commit "fix" "Claude <noreply@anthropic.com>"
+check_fails "commit by an agent fails" check_pr "${good[@]}"
+git -C "$pr" reset -q --hard HEAD~1
+pr_commit $'fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+check_fails "commit message with an agent co-author fails" check_pr "${good[@]}"
+git -C "$pr" reset -q --hard HEAD~1
+pr_commit $'fix\n\nClaude-Session: https://example.com/s'
+check_fails "commit message with a session line fails" check_pr "${good[@]}"
+git -C "$pr" reset -q --hard HEAD~1
+pr_commit $'fix\n\nCo-Authored-By: Colleague <2+colleague@users.noreply.github.com>' "Colleague <2+colleague@users.noreply.github.com>"
+check "a human co-author and another participant pass" check_pr "${good[@]}"
+check_fails "no arguments is an error" "$root/scripts/check-pr.sh"
+rm "$pr/AGENTS.md"
+check_fails "missing key is an error" check_pr "${good[@]}"
+
+hook=$root/templates/.claude/hooks/check-commit.sh
+hook_input() { printf '%s' "$1" | "$hook"; }
+check "hook lets an ordinary command through" hook_input '{"tool_name":"Bash","tool_input":{"command":"git status"}}'
+check "hook lets a clean commit through" hook_input '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"Add cart\""}}'
+check_fails "hook blocks a commit with a co-author line" hook_input '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"Add cart\n\nCo-Authored-By: Claude <noreply@anthropic.com>\""}}'
+hook_exit() { printf '%s' "$1" | "$hook" >/dev/null 2>&1; echo $?; }
+check "hook blocks with exit code 2" test "$(hook_exit '{"tool_input":{"command":"git commit -m \"x\n\nClaude-Session: https://e\""}}')" = 2
+
+check "rules.md fits the size limit" "$root/scripts/check-rules-size.sh" "$root/rules.md"
+printf 'x\n%.0s' $(seq 61) >"$work/long.md"
+check_fails "61 lines fail the size limit" "$root/scripts/check-rules-size.sh" "$work/long.md"
+head -c 8193 /dev/zero | tr '\0' x >"$work/big.md"
+check_fails "8193 bytes fail the size limit" "$root/scripts/check-rules-size.sh" "$work/big.md"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures test(s) failed" >&2
