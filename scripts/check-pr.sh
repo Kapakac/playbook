@@ -53,7 +53,7 @@ fi
 
 rest=${title#"$key"}
 if [ "$rest" = "$title" ] || ! [[ $rest =~ ^(-[0-9]+)?:\  ]]; then
-  err "title '$title' does not start with '$key: ' or '$key-<task>: ' (prepare-pr.md, step 9)"
+  err "title '$title' does not start with '$key: ' or '$key-<task>: ' (prepare-pr.md, step 10)"
 fi
 
 agent='anthropic\.com|openai\.com|claude|codex|copilot'
