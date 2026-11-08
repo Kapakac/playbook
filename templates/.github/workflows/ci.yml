@@ -15,9 +15,13 @@ concurrency:
 jobs:
   # Heavy jobs depend on this one and are skipped when only documentation changed.
   # A skipped job counts as passed for required status checks, so such PRs do not hang.
+  # The quick checks that must run on every change are steps here, not jobs of their own:
+  # GitHub bills every job as at least one minute.
   changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
     outputs:
       code: ${{ steps.diff.outputs.code }}
     steps:
@@ -29,11 +33,34 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/playbook
           path: .playbook
+          fetch-depth: 0
           persist-credentials: false
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: .playbook/scripts/ci-changes.sh "$BASE" >>"$GITHUB_OUTPUT"
+      - name: Install gitleaks
+        run: |
+          curl -sSLf "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+      - name: Secret scan (gitleaks)
+        run: gitleaks git --redact --no-banner --exit-code 1 .
+      # main changes only through PRs, and the PR has already run this.
+      - name: Shared rules are not edited by hand
+        if: github.event_name == 'pull_request'
+        run: make check-rules PLAYBOOK=.playbook
+      # On opened, reopened and edited rules.yml checks the PR: an agent often fixes the description
+      # right after opening, and a red step here would stay until the next push.
+      - name: PR branch, title, commits and text follow the playbook
+        if: github.event.action == 'synchronize'
+        env:
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: .playbook/scripts/check-pr.sh "$BASE" "$HEAD"
 
   check:
     needs: changes
