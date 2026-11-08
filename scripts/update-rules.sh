@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Usage: update-rules.sh [project-dir]
 #
-# For the rules-update workflow: syncs the shared rules if rules.md, procedures/ or the PR template
-# changed in this playbook clone since the commit recorded in AGENTS.md, adds new lines of the
+# For the rules-update workflow: syncs the shared rules if rules.md, procedures/, scripts/agent-guard.sh
+# or the PR template changed in this playbook clone since the commit recorded in AGENTS.md, adds new lines of the
 # playbook PR template to the project's one, then checks the result.
 # Lines removed or changed in the playbook template are left to the agent.
 set -euo pipefail
@@ -29,7 +29,7 @@ pb() {
 old=$(sed -nE 's/^<!-- playbook:begin playbook@([0-9a-f]{40}) .*/\1/p' "$project/AGENTS.md" | head -n 1)
 
 if [ -n "$old" ] && pb cat-file -e "$old^{commit}" 2>/dev/null \
-  && pb diff --quiet "$old" HEAD -- rules.md procedures "$template"; then
+  && pb diff --quiet "$old" HEAD -- rules.md procedures scripts/agent-guard.sh "$template"; then
   echo "update-rules: nothing new in the playbook since $old"
 else
   "$sync" "$project"

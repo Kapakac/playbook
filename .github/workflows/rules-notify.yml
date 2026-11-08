@@ -6,6 +6,7 @@ on:
     paths:
       - rules.md
       - procedures/**
+      - scripts/agent-guard.sh
       - templates/.github/pull_request_template.md
       - .github/workflows/rules-notify.yml
       - scripts/notify-rules.sh

@@ -1,0 +1,58 @@
+# Codex: the plainest spellings of what .githooks/agent-guard.sh refuses, checked before a command
+# runs. The rest (HEAD:main, push from main, sh -c, a full path) is left to the hook in
+# .codex/hooks.json and the git hooks. Codex reads this file only in a trusted project.
+
+prefix_rule(
+    pattern = [["ssh", "scp", "sftp", "rsync"]],
+    decision = "forbidden",
+    justification = "The agent does not go to servers: the owner runs server commands and deploys (rules.md, «Документы проекта»).",
+    match = ["ssh host uptime", "rsync -a dist host:app"],
+    not_match = ["git status"],
+)
+
+prefix_rule(
+    pattern = ["rm", ["-rf", "-fr", "-Rf", "-fR"]],
+    decision = "forbidden",
+    justification = "Deleting anything needs the owner's «да» on that exact deletion (rules.md, «Только с согласия владельца»).",
+    match = ["rm -rf build", "rm -fr build"],
+    not_match = ["rm -r build", "rm file"],
+)
+
+prefix_rule(
+    pattern = ["rm", ["-r", "-R", "--recursive"], ["-f", "--force"]],
+    decision = "forbidden",
+    justification = "Deleting anything needs the owner's «да» on that exact deletion (rules.md, «Только с согласия владельца»).",
+    match = ["rm -r -f build", "rm --recursive --force build"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", ["-f", "--force", "--force-with-lease", "--mirror", "--all", "--no-verify"]],
+    decision = "forbidden",
+    justification = "No force-push, no push of all branches and no skipping the git hooks: push your branch and open a PR (rules.md, «Ветки, коммиты и PR»).",
+    match = ["git push --force", "git push -f origin feature"],
+    not_match = ["git push origin feature"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "origin", ["main", "HEAD:main", "refs/heads/main", "HEAD:refs/heads/main", ":main", "+main"]],
+    decision = "forbidden",
+    justification = "Only a PR that the owner merges goes to main: push your branch and open a PR (rules.md, «Ветки, коммиты и PR»).",
+    match = ["git push origin main", "git push origin HEAD:main"],
+    not_match = ["git push origin feature"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", ["-u", "--set-upstream"], "origin", ["main", "HEAD:main"]],
+    decision = "forbidden",
+    justification = "Only a PR that the owner merges goes to main: push your branch and open a PR (rules.md, «Ветки, коммиты и PR»).",
+    match = ["git push -u origin main"],
+    not_match = ["git push -u origin feature"],
+)
+
+prefix_rule(
+    pattern = ["git", "commit", ["--no-verify", "-n"]],
+    decision = "forbidden",
+    justification = "No skipping the git hooks: commit without --no-verify (rules.md, «Ветки, коммиты и PR»).",
+    match = ["git commit --no-verify -m x"],
+    not_match = ["git commit -m x"],
+)
