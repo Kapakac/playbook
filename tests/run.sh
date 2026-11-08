@@ -356,6 +356,8 @@ check "a rules auto-update PR skips the list and README checks" check_pr PR_BRAN
 checked=$(git -C "$pb" rev-parse HEAD)
 set_checked "$checked"
 check "the list check passes after the line moves" check_pr "${stale[@]}"
+pb_change templates/.github/pull_request_template.md '' '## New section'
+check "a PR template change alone passes" check_pr "${stale[@]}"
 pb_change templates/new.md '' x
 check_fails_with "a templates change fails" "changed templates/ since" check_pr "${stale[@]}"
 set_checked "$(git -C "$pb" rev-parse HEAD)"
