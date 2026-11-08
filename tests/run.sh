@@ -301,26 +301,41 @@ pb_change() {
 }
 set_checked "$checked"
 pr_commit "add a thing"
-good=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY='## Что изменено')
+readme_ok='README: обновлён'
+good=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY=$'## Что изменено\n\nREADME: обновлён')
 check "PR with a task number passes" check_pr "${good[@]}"
-check "PR outside tasks passes" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=
-check_output "branch from the environment only warns" 0 '^::warning::branch' check_pr PR_BRANCH=claude/thread-1 PR_TITLE='shop: корзина' PR_BODY=
-check_fails "branch without the key fails" check_pr PR_BRANCH=cart-69d429 PR_TITLE='shop: корзина' PR_BODY=
-check_fails "branch with capitals fails" check_pr PR_BRANCH=shop-Cart PR_TITLE='shop: корзина' PR_BODY=
-check_fails "title without the key fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='корзина' PR_BODY=
-check_fails "title with another key fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shopping: корзина' PR_BODY=
+check "PR outside tasks passes" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY="$readme_ok"
+check_output "branch from the environment only warns" 0 '^::warning::branch' check_pr PR_BRANCH=claude/thread-1 PR_TITLE='shop: корзина' PR_BODY="$readme_ok"
+check_fails "branch without the key fails" check_pr PR_BRANCH=cart-69d429 PR_TITLE='shop: корзина' PR_BODY="$readme_ok"
+check_fails "branch with capitals fails" check_pr PR_BRANCH=shop-Cart PR_TITLE='shop: корзина' PR_BODY="$readme_ok"
+check_fails "title without the key fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='корзина' PR_BODY="$readme_ok"
+check_fails "title with another key fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shopping: корзина' PR_BODY="$readme_ok"
 check_fails "PR text with a session link fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=$'text\n\nhttps://claude.ai/code/session_1'
 check_fails "PR text with Generated with fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY='🤖 Generated with Claude Code'
 check_fails "PR text with a Requested by line fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=$'text\n\n_Requested by @owner_'
-check "PR text that only talks about the traces passes" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY='Проверка ловит Co-Authored-By, Claude-Session, «Generated with» и «Requested by» в описании.'
-stale=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY=)
+check "PR text that only talks about the traces passes" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=$'Проверка ловит Co-Authored-By, Claude-Session, «Generated with» и «Requested by» в описании.\n\nREADME: обновлён'
+readme() { check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY="$1"; }
+readme_fails() { check_fails_with "$1" "$2" readme "$3"; }
+check "README updated with details passes" readme $'## Что изменено\n\n- cart\n\n**README:** обновлён: раздел «Корзина», docs/a/b.md'
+check "README updated without ё passes" readme '- README: Обновлен'
+check "README not needed with a reason passes" readme $'README: не нужно, потому что поменялись только тесты\r'
+check "README not needed with a dash reason passes" readme 'README: Не нужно — только рефакторинг'
+readme_fails "a PR text without the README line fails" "has no «README:» line" $'## Что изменено\n\n- cart'
+readme_fails "the README line from the template fails" "left as in the template" $'## Что изменено\n\nREADME: обновлён / не нужно, потому что …'
+readme_fails "an empty README line fails" "says ''" 'README:'
+readme_fails "not needed without a reason fails" "without a reason" 'README: не нужно, потому что …'
+readme_fails "not needed with only a comma fails" "without a reason" 'README: не нужно,'
+readme_fails "another README answer fails" "says 'потом'" 'README: потом'
+readme_fails "README.md mentioned elsewhere does not count" "has no «README:» line" '- [x] Документы актуальны: README.md, docs/'
+check "the template line is in the PR template" grep -qx 'README: обновлён / не нужно, потому что …' "$root/templates/.github/pull_request_template.md"
+stale=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY="$readme_ok")
 pb_change README.md '- text' '- other text'
 check "a README change outside the list passes" check_pr "${stale[@]}"
 set_checked "${checked:0:7}"
 check "a short checked commit passes" check_pr "${stale[@]}"
 pb_change README.md '- step' '- new step'
 check_fails_with "a changed list fails" "changed README «Что должно быть в проекте» since" check_pr "${stale[@]}"
-check "a rules auto-update PR skips the list check" check_pr PR_BRANCH=shop-rules-auto PR_TITLE='shop: обновить общие правила' PR_BODY=
+check "a rules auto-update PR skips the list and README checks" check_pr PR_BRANCH=shop-rules-auto PR_TITLE='shop: обновить общие правила' PR_BODY=
 checked=$(git -C "$pb" rev-parse HEAD)
 set_checked "$checked"
 check "the list check passes after the line moves" check_pr "${stale[@]}"
@@ -340,7 +355,7 @@ set_checked "$(git -C "$pb" rev-parse HEAD)"
 check_self() { (cd "$root" && env PR_BRANCH=playbook-x PR_TITLE='playbook: x' PR_BODY= "$root/scripts/check-pr.sh" HEAD HEAD); }
 check "the playbook repo itself skips the list check" check_self
 pr_commit "check the list"
-check_pr_key() { (cd "$pr" && env PLAYBOOK="$pb" PR_BRANCH=x-1-y PR_TITLE='x-1: y' PR_BODY= "$root/scripts/check-pr.sh" --key x "$pr_base" HEAD); }
+check_pr_key() { (cd "$pr" && env PLAYBOOK="$pb" PR_BRANCH=x-1-y PR_TITLE='x-1: y' PR_BODY="$readme_ok" "$root/scripts/check-pr.sh" --key x "$pr_base" HEAD); }
 check "explicit key overrides AGENTS.md" check_pr_key
 pr_commit "fix" "Claude <noreply@anthropic.com>"
 check_fails "commit by an agent fails" check_pr "${good[@]}"
