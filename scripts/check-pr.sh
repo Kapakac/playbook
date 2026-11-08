@@ -10,7 +10,9 @@
 # It also fails when the «Список playbook сверен» commit in AGENTS.md is missing or behind the
 # playbook clone this script lives in (or PLAYBOOK): the README section «Что должно быть в
 # проекте», templates/ or procedures/no-repo-agent.md changed since (procedures/checklist.md).
-# Rules auto-update PRs (*-rules-auto branches) and the playbook repo itself skip that check.
+# It also fails when the PR text lacks a filled «README:» line from the PR template: «README:
+# обновлён …» or «README: не нужно, потому что <reason>».
+# Rules auto-update PRs (*-rules-auto branches) and the playbook repo itself skip these two checks.
 set -euo pipefail
 
 usage() {
@@ -69,9 +71,11 @@ playbook=${PLAYBOOK:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}
 here=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
 here=$(cd "$here" && pwd -P)
 checklist="go through docs/playbook/checklist.md and set the line to the current playbook commit"
+skip_project=0
 if [[ $branch == *-rules-auto ]] || [ "$here" = "$(cd "$playbook" && pwd -P)" ]; then
-  :
-else
+  skip_project=1
+fi
+if [ "$skip_project" = 0 ]; then
   # shellcheck disable=SC2016
   checked=$(sed -nE 's/^- Список playbook сверен: `playbook@([0-9a-f]{7,40})`.*/\1/p' AGENTS.md 2>/dev/null | head -n 1)
   if [ -z "$checked" ]; then
@@ -97,6 +101,26 @@ else
   fi
 fi
 
+readme="fill the PR template line «README: обновлён» or «README: не нужно, потому что <reason>» (prepare-pr.md, step 10)"
+if [ "$skip_project" = 0 ]; then
+  line=$(printf '%s\n' "$body" | tr -d '\r' | grep -m 1 -E '^[[:space:]>*_-]*README[*_]*:' || true)
+  value=$(printf '%s' "$line" | sed -E 's/^[[:space:]>*_-]*README[*_]*:[*_[:space:]]*//; s/[[:space:]*_]*$//')
+  reason=$(printf '%s' "$value" | sed -E 's/^(Н|н)е нужно//; s/^([[:space:],:;.-]|—|–)*//; s/^потому что//; s/^([[:space:],:;.-]|—|–|…)*//')
+  if [ -z "$line" ]; then
+    err "the PR text has no «README:» line: $readme"
+  elif [[ $value =~ ^(О|о)бновл(ё|е)н[[:space:]]*/[[:space:]]*(Н|н)е\ нужно ]]; then
+    err "the «README:» line is left as in the template: $readme"
+  elif [[ $value =~ ^(О|о)бновл(ё|е)н ]]; then
+    :
+  elif [[ $value =~ ^(Н|н)е\ нужно ]] && [ -n "$reason" ]; then
+    :
+  elif [[ $value =~ ^(Н|н)е\ нужно ]]; then
+    err "the «README:» line says «не нужно» without a reason: $readme"
+  else
+    err "the «README:» line says '$value': $readme"
+  fi
+fi
+
 agent='anthropic\.com|openai\.com|claude|codex|copilot'
 while IFS= read -r author; do
   [ -n "$author" ] || continue
@@ -118,4 +142,4 @@ if [ "$errors" -gt 0 ]; then
   echo "check-pr: $errors problem(s)" >&2
   exit 1
 fi
-echo "check-pr: branch, title, authors and messages follow the rules"
+echo "check-pr: branch, title, authors, messages and the PR text follow the rules"
