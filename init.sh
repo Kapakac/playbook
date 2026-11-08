@@ -20,9 +20,9 @@ if [ "$project" = "$playbook" ]; then
   exit 1
 fi
 
-if ! git -C "$playbook" diff --quiet HEAD -- rules.md procedures \
+if ! git -C "$playbook" diff --quiet HEAD -- rules.md procedures scripts/agent-guard.sh \
   || [ -n "$(git -C "$playbook" ls-files --others --exclude-standard -- procedures)" ]; then
-  echo "init.sh: the playbook clone has uncommitted changes in rules.md or procedures/: commit them first" >&2
+  echo "init.sh: the playbook clone has uncommitted changes in rules.md, procedures/ or scripts/agent-guard.sh: commit them first" >&2
   exit 1
 fi
 
@@ -55,5 +55,5 @@ else
   echo "AGENTS.md has no playbook markers: add them as in templates/AGENTS.md, then run make sync-rules"
 fi
 
-$created_makefile || echo "Makefile already existed: add the sync-rules and check-rules targets from templates/Makefile"
-echo "Next: fill in the «Проект» section of AGENTS.md and docs/stack.md, docs/roadmap.md"
+$created_makefile || echo "Makefile already existed: add the sync-rules, check-rules and hooks targets from templates/Makefile"
+echo "Next: fill in the «Проект» section of AGENTS.md and docs/stack.md, docs/roadmap.md; make hooks turns on the git hooks"

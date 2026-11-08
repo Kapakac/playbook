@@ -49,6 +49,7 @@ cp -R "$root/templates" "$pb/templates"
 cp "$root/init.sh" "$pb/init.sh"
 cp "$root/scripts/sync-rules.sh" "$pb/scripts/sync-rules.sh"
 cp "$root/scripts/update-rules.sh" "$pb/scripts/update-rules.sh"
+cp "$root/scripts/agent-guard.sh" "$pb/scripts/agent-guard.sh"
 printf '## Rules\n\n- one\n' >"$pb/rules.md"
 printf '# A\n' >"$pb/procedures/a.md"
 printf '# B\n' >"$pb/procedures/b.md"
@@ -66,6 +67,10 @@ check "init creates a project" "$pb/init.sh" "$proj" 'Name & a/b'
 check "init copies templates" test -f "$proj/CLAUDE.md" -a -f "$proj/docs/duck-log.md" -a -f "$proj/.github/workflows/rules.yml" \
   -a -f "$proj/.github/workflows/rules-update.yml" -a -f "$proj/.github/workflows/ci.yml" \
   -a -f "$proj/.claude/settings.json" -a -x "$proj/.claude/hooks/check-commit.sh"
+check "init copies the git hooks and the Codex files" test -x "$proj/.githooks/pre-push" -a -x "$proj/.githooks/commit-msg" \
+  -a -f "$proj/.codex/hooks.json" -a -f "$proj/.codex/rules/agent-guard.rules"
+check "init puts the guard next to the git hooks" test -x "$proj/.githooks/agent-guard.sh"
+check "the guard copy equals the playbook script" cmp "$proj/.githooks/agent-guard.sh" "$pb/scripts/agent-guard.sh"
 check "init skips the shared branch template" test ! -e "$proj/shared"
 check "CLAUDE.md imports AGENTS.md" grep -qx '@AGENTS.md' "$proj/CLAUDE.md"
 check "project name substituted literally" grep -qx '# Name & a/b' "$proj/AGENTS.md"
@@ -92,6 +97,18 @@ cp "$pb/procedures/b.md" "$proj/docs/playbook/b.md"
 echo x >"$proj/docs/playbook/c.md"
 check_fails "check fails on an extra file in docs/playbook" verify
 rm "$proj/docs/playbook/c.md"
+echo '# edited' >>"$proj/.githooks/agent-guard.sh"
+check_fails "check fails on an edited guard copy" verify
+cp "$pb/scripts/agent-guard.sh" "$proj/.githooks/agent-guard.sh"
+chmod -x "$proj/.githooks/agent-guard.sh"
+check_fails "check fails on a guard copy that is not executable" verify
+rm "$proj/.githooks/agent-guard.sh"
+check_output "check only warns about a missing guard copy" 0 "agent-guard.sh is missing" verify
+echo '# dirty' >>"$pb/scripts/agent-guard.sh"
+check_fails "sync refuses a dirty guard in the playbook" sync
+git -C "$pb" checkout -q -- scripts/agent-guard.sh
+check "sync puts the guard copy back" sync
+check "the guard copy is executable again" test -x "$proj/.githooks/agent-guard.sh"
 check "check passes again" verify
 
 printf 'project text after the block\n' >>"$proj/AGENTS.md"
@@ -373,11 +390,11 @@ rm "$pr/AGENTS.md"
 check_fails "missing key is an error" check_pr "${good[@]}"
 
 hook=$root/templates/.claude/hooks/check-commit.sh
-hook_input() { printf '%s' "$1" | "$hook"; }
+hook_input() { printf '%s' "$1" | CLAUDE_PROJECT_DIR=$proj "$hook"; }
 check "hook lets an ordinary command through" hook_input '{"tool_name":"Bash","tool_input":{"command":"git status"}}'
 check "hook lets a clean commit through" hook_input '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"Add cart\""}}'
 check_fails "hook blocks a commit with a co-author line" hook_input '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"Add cart\n\nCo-Authored-By: Claude <noreply@anthropic.com>\""}}'
-hook_exit() { printf '%s' "$1" | "$hook" >/dev/null 2>&1; echo $?; }
+hook_exit() { printf '%s' "$1" | CLAUDE_PROJECT_DIR=$proj "$hook" >/dev/null 2>&1; echo $?; }
 check "hook blocks with exit code 2" test "$(hook_exit '{"tool_input":{"command":"git commit -m \"x\n\nClaude-Session: https://e\""}}')" = 2
 
 check "rules.md fits the size limit" "$root/scripts/check-rules-size.sh" "$root/rules.md"

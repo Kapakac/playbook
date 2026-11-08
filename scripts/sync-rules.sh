@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Usage: sync-rules.sh [--check] [project-dir]
 #
-# Sync: copies rules.md of this playbook clone into the marked block of <project-dir>/AGENTS.md
-# and procedures/*.md into <project-dir>/docs/playbook/, recording the playbook commit in the marker.
+# Sync: copies rules.md of this playbook clone into the marked block of <project-dir>/AGENTS.md,
+# procedures/*.md into <project-dir>/docs/playbook/ and scripts/agent-guard.sh into
+# <project-dir>/.githooks/, recording the playbook commit in the marker.
 # Check: fails if the block or the copies differ from the playbook at the recorded commit,
 # warns if the playbook has moved on since.
 set -euo pipefail
@@ -23,6 +24,9 @@ playbook=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 project=$(cd "${1:-.}" && pwd -P)
 agents=$project/AGENTS.md
 copies=$project/docs/playbook
+guard=scripts/agent-guard.sh
+guard_copy=$project/.githooks/agent-guard.sh
+synced=(rules.md procedures "$guard")
 begin_re='^<!-- playbook:begin playbook@[0-9a-f]{40} '
 end_line='<!-- playbook:end -->'
 
@@ -68,9 +72,9 @@ show() {
 }
 
 if [ "$mode" = sync ]; then
-  if ! pb diff --quiet HEAD -- rules.md procedures \
+  if ! pb diff --quiet HEAD -- "${synced[@]}" \
     || [ -n "$(pb ls-files --others --exclude-standard -- procedures)" ]; then
-    fail "the playbook clone has uncommitted changes in rules.md or procedures/: commit them first"
+    fail "the playbook clone has uncommitted changes in rules.md, procedures/ or $guard: commit them first"
   fi
   sha=$(pb rev-parse HEAD)
   if pb rev-parse --verify --quiet origin/main >/dev/null; then
@@ -78,7 +82,7 @@ if [ "$mode" = sync ]; then
     update_cmd="git -C $playbook fetch origin main && git -C $playbook checkout --detach origin/main"
     if ! pb merge-base --is-ancestor "$sha" origin/main; then
       warn "playbook HEAD $sha is not in origin/main: sync from an up-to-date main ($update_cmd)"
-    elif ! pb diff --quiet "$sha" origin/main -- rules.md procedures; then
+    elif ! pb diff --quiet "$sha" origin/main -- "${synced[@]}"; then
       warn "playbook HEAD $sha is behind origin/main: update the clone ($update_cmd) and sync again"
     fi
   fi
@@ -108,6 +112,13 @@ if [ "$mode" = sync ]; then
     grep -qxF "$(basename "$f")" <<<"$names" \
       || warn "docs/playbook/$(basename "$f") is not in the playbook any more: ask the owner before deleting it"
   done
+
+  if pb cat-file -e "$sha:$guard" 2>/dev/null; then
+    mkdir -p "$(dirname "$guard_copy")"
+    pb show "$sha:$guard" >"$guard_copy"
+    chmod +x "$guard_copy"
+    echo ".githooks/agent-guard.sh: from playbook@$sha"
+  fi
 
   cat "$tmp" >"$agents"
   echo "AGENTS.md: shared block from playbook@$sha"
@@ -143,12 +154,23 @@ for f in "$copies"/*; do
     || problem "docs/playbook/$(basename "$f") is not in playbook@$sha"
 done
 
+if pb cat-file -e "$sha:$guard" 2>/dev/null; then
+  # A project whose rules-update.yml predates the guard does not commit the copy: warn, do not fail main.
+  if [ ! -f "$guard_copy" ]; then
+    warn ".githooks/agent-guard.sh is missing: run make sync-rules and commit it (README playbook, «Что должно быть в проекте»)"
+  elif ! diff -q "$guard_copy" <(pb show "$sha:$guard") >/dev/null; then
+    problem ".githooks/agent-guard.sh differs from $guard at playbook@$sha: change the playbook, then run make sync-rules"
+  elif [ ! -x "$guard_copy" ]; then
+    problem ".githooks/agent-guard.sh is not executable: run make sync-rules"
+  fi
+fi
+
 [ "$errors" = 0 ] || exit 1
 
 head_sha=$(pb rev-parse HEAD)
 if ! pb merge-base --is-ancestor "$sha" "$head_sha"; then
   warn "the playbook clone (at $head_sha) does not contain $sha on its branch: update the clone before syncing"
-elif ! pb diff --quiet "$sha" "$head_sha" -- rules.md procedures; then
+elif ! pb diff --quiet "$sha" "$head_sha" -- "${synced[@]}"; then
   warn "the playbook has newer rules than $sha (now $head_sha): run make sync-rules in a separate PR"
 fi
-echo "AGENTS.md and docs/playbook/ match playbook@$sha"
+echo "AGENTS.md, docs/playbook/ and .githooks/agent-guard.sh match playbook@$sha"

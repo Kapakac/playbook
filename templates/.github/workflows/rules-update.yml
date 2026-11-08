@@ -36,7 +36,7 @@ jobs:
           BASE: ${{ github.ref_name }}
           PLAYBOOK_REPO: ${{ github.repository_owner }}/playbook
         run: |
-          paths=(AGENTS.md docs/playbook .github/pull_request_template.md)
+          paths=(AGENTS.md docs/playbook .githooks/agent-guard.sh .github/pull_request_template.md)
           if [ -z "$(git status --porcelain -- "${paths[@]}")" ]; then
             echo "The shared rules are up to date"
             exit 0
@@ -54,9 +54,9 @@ jobs:
             echo "## Что изменено"
             echo
             if [ -n "$OLD" ] && [ "$OLD" != 0000000000000000000000000000000000000000 ]; then
-              echo "- Общие правила и \`docs/playbook/\` обновлены из playbook: [${OLD:0:7}…${new:0:7}](https://github.com/$PLAYBOOK_REPO/compare/$OLD...$new)."
+              echo "- Общие правила, \`docs/playbook/\` и \`.githooks/agent-guard.sh\` обновлены из playbook: [${OLD:0:7}…${new:0:7}](https://github.com/$PLAYBOOK_REPO/compare/$OLD...$new)."
             else
-              echo "- Общие правила и \`docs/playbook/\` обновлены из playbook@${new:0:7}."
+              echo "- Общие правила, \`docs/playbook/\` и \`.githooks/agent-guard.sh\` обновлены из playbook@${new:0:7}."
             fi
             if [ -n "$(git status --porcelain -- .github/pull_request_template.md)" ]; then
               echo "- В \`.github/pull_request_template.md\` добавлены новые строки из шаблона playbook: проверь, что они встали на место."

@@ -129,12 +129,12 @@ while IFS= read -r author; do
   fi
 done < <(git log --format='%an <%ae>' "$base..$head" | sort -u)
 
-# Anchored to the start of a line so that text about these lines (a rules PR, a how-to) still passes.
-traces='^[[:space:]_*]*(co-authored-by:.*('"$agent"'|gpt)|claude-session:|requested by)|generated (with|by) \[?(claude|codex|copilot|chatgpt)|claude\.ai/code|chatgpt\.com/codex'
-if git log --format=%B "$base..$head" | grep -qiE "$traces"; then
+# The trace expressions live in agent-guard.sh, which the git commit-msg hook and the agent hooks use too.
+guard=$(dirname "${BASH_SOURCE[0]}")/agent-guard.sh
+if ! git log --format=%B "$base..$head" | "$guard" text 2>/dev/null; then
   err "a commit message carries agent traces (Co-Authored-By, Claude-Session, Generated with …): rewrite it (rules.md, «Ветки, коммиты и PR»)"
 fi
-if printf '%s\n%s\n' "$title" "$body" | grep -qiE "$traces"; then
+if ! printf '%s\n%s\n' "$title" "$body" | "$guard" text 2>/dev/null; then
   err "the PR title or text carries agent traces (Generated with …, Requested by …, a session link): edit them out (rules.md, «Ветки, коммиты и PR»)"
 fi
 

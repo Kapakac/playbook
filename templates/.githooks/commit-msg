@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Git commit-msg hook: no agent traces in the commit message, whoever commits. Turned on by make hooks.
+exec "$(dirname "$0")/agent-guard.sh" commit-msg "$@"

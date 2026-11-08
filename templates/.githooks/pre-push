@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Git pre-push hook: no push to main and no force-push, whoever pushes. Turned on by make hooks.
+exec "$(dirname "$0")/agent-guard.sh" pre-push "$@"
