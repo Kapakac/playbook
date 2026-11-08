@@ -32,6 +32,11 @@ check_output() {
     cat "$work/out" >&2
   fi
 }
+check_fails_with() {
+  local name=$1 pattern=$2
+  shift 2
+  if ! "$@" >"$work/out" 2>&1 && grep -q "$pattern" "$work/out"; then pass "$name"; else fail "$name"; cat "$work/out" >&2; fi
+}
 check_fails() {
   local name=$1
   shift
@@ -274,7 +279,27 @@ pr_commit() {
   git -C "$pr" add -A
   git -C "$pr" commit -q --author="$author" -m "$message"
 }
-check_pr() { (cd "$pr" && env "$@" "$root/scripts/check-pr.sh" "$pr_base" HEAD); }
+check_pr() { (cd "$pr" && env PLAYBOOK="$pb" "$@" "$root/scripts/check-pr.sh" "$pr_base" HEAD); }
+printf '# P\n\n## Что должно быть в проекте\n\n- item\n\n### Что делает агент\n\n- step\n\n## Other\n\n- text\n' >"$pb/README.md"
+git -C "$pb" commit -q -m "list" -- README.md
+checked=$(git -C "$pb" rev-parse HEAD)
+set_checked() {
+  sed -i.tmp '/^- Список playbook сверен:/d' "$pr/AGENTS.md" && rm -f "$pr/AGENTS.md.tmp"
+  # shellcheck disable=SC2016
+  [ -z "$1" ] || printf -- '- Список playbook сверен: `playbook@%s` — сверяли.\n' "$1" >>"$pr/AGENTS.md"
+}
+pb_change() {
+  local file=$1 from=$2 to=$3
+  mkdir -p "$pb/$(dirname "$file")"
+  if [ -n "$from" ]; then
+    sed -i.tmp "s/^$from\$/$to/" "$pb/$file" && rm -f "$pb/$file.tmp"
+  else
+    echo "$to" >>"$pb/$file"
+  fi
+  git -C "$pb" add -- "$file"
+  git -C "$pb" commit -q -m "change $file" -- "$file"
+}
+set_checked "$checked"
 pr_commit "add a thing"
 good=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY='## Что изменено')
 check "PR with a task number passes" check_pr "${good[@]}"
@@ -288,7 +313,34 @@ check_fails "PR text with a session link fails" check_pr PR_BRANCH=shop-cart-69d
 check_fails "PR text with Generated with fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY='🤖 Generated with Claude Code'
 check_fails "PR text with a Requested by line fails" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY=$'text\n\n_Requested by @owner_'
 check "PR text that only talks about the traces passes" check_pr PR_BRANCH=shop-cart-69d429 PR_TITLE='shop: корзина' PR_BODY='Проверка ловит Co-Authored-By, Claude-Session, «Generated with» и «Requested by» в описании.'
-check_pr_key() { (cd "$pr" && env PR_BRANCH=x-1-y PR_TITLE='x-1: y' PR_BODY= "$root/scripts/check-pr.sh" --key x "$pr_base" HEAD); }
+stale=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY=)
+pb_change README.md '- text' '- other text'
+check "a README change outside the list passes" check_pr "${stale[@]}"
+set_checked "${checked:0:7}"
+check "a short checked commit passes" check_pr "${stale[@]}"
+pb_change README.md '- step' '- new step'
+check_fails_with "a changed list fails" "changed README «Что должно быть в проекте» since" check_pr "${stale[@]}"
+check "a rules auto-update PR skips the list check" check_pr PR_BRANCH=shop-rules-auto PR_TITLE='shop: обновить общие правила' PR_BODY=
+checked=$(git -C "$pb" rev-parse HEAD)
+set_checked "$checked"
+check "the list check passes after the line moves" check_pr "${stale[@]}"
+pb_change templates/new.md '' x
+check_fails_with "a templates change fails" "changed templates/ since" check_pr "${stale[@]}"
+set_checked "$(git -C "$pb" rev-parse HEAD)"
+pb_change procedures/no-repo-agent.md '' x
+check_fails_with "a no-repo-agent block change fails" "changed procedures/no-repo-agent.md since" check_pr "${stale[@]}"
+pb_change procedures/a.md '' x
+set_checked "$(git -C "$pb" rev-parse HEAD)"
+check "another procedure change passes" check_pr "${stale[@]}"
+set_checked deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+check_fails_with "a commit the clone lacks fails" "does not have" check_pr "${stale[@]}"
+set_checked ''
+check_fails_with "a missing line fails" "has no «Список playbook сверен" check_pr "${stale[@]}"
+set_checked "$(git -C "$pb" rev-parse HEAD)"
+check_self() { (cd "$root" && env PR_BRANCH=playbook-x PR_TITLE='playbook: x' PR_BODY= "$root/scripts/check-pr.sh" HEAD HEAD); }
+check "the playbook repo itself skips the list check" check_self
+pr_commit "check the list"
+check_pr_key() { (cd "$pr" && env PLAYBOOK="$pb" PR_BRANCH=x-1-y PR_TITLE='x-1: y' PR_BODY= "$root/scripts/check-pr.sh" --key x "$pr_base" HEAD); }
 check "explicit key overrides AGENTS.md" check_pr_key
 pr_commit "fix" "Claude <noreply@anthropic.com>"
 check_fails "commit by an agent fails" check_pr "${good[@]}"

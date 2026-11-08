@@ -7,6 +7,10 @@
 # The branch, title and text come from PR_BRANCH, PR_TITLE and PR_BODY; the key is read from
 # AGENTS.md when --key is not given. Errors go out as ::error:: lines; exit code 1 when any.
 # A branch imposed by the agent's environment (claude/...) is allowed with a warning.
+# It also fails when the «Список playbook сверен» commit in AGENTS.md is missing or behind the
+# playbook clone this script lives in (or PLAYBOOK): the README section «Что должно быть в
+# проекте», templates/ or procedures/no-repo-agent.md changed since (procedures/checklist.md).
+# Rules auto-update PRs (*-rules-auto branches) and the playbook repo itself skip that check.
 set -euo pipefail
 
 usage() {
@@ -54,6 +58,43 @@ fi
 rest=${title#"$key"}
 if [ "$rest" = "$title" ] || ! [[ $rest =~ ^(-[0-9]+)?:\  ]]; then
   err "title '$title' does not start with '$key: ' or '$key-<task>: ' (prepare-pr.md, step 10)"
+fi
+
+checklist_section() {
+  git -C "$playbook" show "$1:README.md" 2>/dev/null |
+    awk '/^## /{on = ($0 == "## Что должно быть в проекте")} on'
+}
+
+playbook=${PLAYBOOK:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}
+here=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+here=$(cd "$here" && pwd -P)
+checklist="go through docs/playbook/checklist.md and set the line to the current playbook commit"
+if [[ $branch == *-rules-auto ]] || [ "$here" = "$(cd "$playbook" && pwd -P)" ]; then
+  :
+else
+  # shellcheck disable=SC2016
+  checked=$(sed -nE 's/^- Список playbook сверен: `playbook@([0-9a-f]{7,40})`.*/\1/p' AGENTS.md 2>/dev/null | head -n 1)
+  if [ -z "$checked" ]; then
+    err "AGENTS.md has no «Список playbook сверен: \`playbook@<commit>\`» line: $checklist"
+  elif ! git -C "$playbook" rev-parse -q --verify "$checked^{commit}" >/dev/null; then
+    err "«Список playbook сверен» names playbook@$checked, which the playbook clone does not have: $checklist"
+  else
+    changed=()
+    if [ "$(checklist_section "$checked")" != "$(checklist_section HEAD)" ]; then
+      changed+=("README «Что должно быть в проекте»")
+    fi
+    if ! git -C "$playbook" diff --quiet "$checked" HEAD -- templates; then
+      changed+=("templates/")
+    fi
+    if ! git -C "$playbook" diff --quiet "$checked" HEAD -- procedures/no-repo-agent.md; then
+      changed+=("procedures/no-repo-agent.md")
+    fi
+    if [ ${#changed[@]} -gt 0 ]; then
+      latest=$(git -C "$playbook" rev-parse --short HEAD)
+      list=$(printf '%s, ' "${changed[@]}")
+      err "«Список playbook сверен» is playbook@$checked, but the playbook changed ${list%, } since then (now playbook@$latest): $checklist"
+    fi
+  fi
 fi
 
 agent='anthropic\.com|openai\.com|claude|codex|copilot'
