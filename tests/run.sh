@@ -250,6 +250,9 @@ check_output "renaming code into docs is code" 0 '^code=true$' cd_changes "$c3"
 c4=$(git -C "$repo" rev-parse HEAD)
 commit_files "docs/новый файл.md"
 check_output "non-ASCII doc names are docs" 0 '^code=false$' cd_changes "$c4"
+c5=$(git -C "$repo" rev-parse HEAD)
+commit_files openspec/changes/x/proposal.md openspec/changes/x/specs/a/spec.md openspec/specs/a/spec.md
+check_output "spec files under openspec/ are docs" 0 '^code=false$' cd_changes "$c5"
 check_output "zero base is code" 0 '^code=true$' cd_changes 0000000000000000000000000000000000000000
 check_output "empty base is code" 0 '^code=true$' cd_changes ''
 check_output "unknown base is code" 0 '^code=true$' cd_changes deadbeefdeadbeefdeadbeefdeadbeefdeadbeef

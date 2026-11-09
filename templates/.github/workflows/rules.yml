@@ -1,17 +1,20 @@
 name: rules
 
-# Checks the PR when it is opened or reopened and whenever its title or description is edited,
-# so a text edit does not rerun the whole CI. Later pushes to the PR are checked by ci.yml
-# (job changes), and so is make check-rules.
+# Checks the PR when it is opened or reopened, when a draft is marked ready for review and
+# whenever its title or description is edited, so a text edit does not rerun the whole CI.
+# Drafts are skipped: an agent opens a draft, cleans up the text its environment added and marks
+# it ready, and the check runs once. Later pushes to the PR are checked by ci.yml (job changes),
+# and so is make check-rules.
 on:
   pull_request:
-    types: [opened, reopened, edited]
+    types: [opened, reopened, edited, ready_for_review]
 
 permissions:
   contents: read
 
 jobs:
   check-pr:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

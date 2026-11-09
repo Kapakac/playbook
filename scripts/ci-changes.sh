@@ -3,7 +3,7 @@
 #
 # Run inside a git repo. Prints code=false when every file changed between the merge base of
 # <base> and <head> (default HEAD) is documentation, code=true otherwise. Meant for $GITHUB_OUTPUT.
-# Documentation: *.md in the repo root or in .github/, anything under docs/ or shared/.
+# Documentation: *.md in the repo root or in .github/, anything under docs/, shared/ or openspec/.
 # A path that matches a --code glob is code even when it looks like documentation.
 # When the diff cannot be computed (empty or all-zero base, missing commit), prints code=true.
 set -euo pipefail
@@ -42,7 +42,7 @@ is_doc() {
     [[ $path == $glob ]] && return 1
   done
   case $path in
-    docs/* | shared/*) return 0 ;;
+    docs/* | shared/* | openspec/*) return 0 ;;
     */*.md) [[ $path == .github/* && $path != .github/*/* ]] ;;
     *.md) return 0 ;;
     *) return 1 ;;
