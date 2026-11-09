@@ -50,8 +50,8 @@ jobs:
       - name: Shared rules are not edited by hand
         if: github.event_name == 'pull_request'
         run: make check-rules PLAYBOOK=.playbook
-      # On opened, reopened and edited rules.yml checks the PR: an agent often fixes the description
-      # right after opening, and a red step here would stay until the next push.
+      # On opened, reopened, edited and ready_for_review rules.yml checks the PR: an agent fixes the
+      # description right after opening, and a red step here would stay until the next push.
       - name: PR branch, title, commits and text follow the playbook
         if: github.event.action == 'synchronize'
         env:
