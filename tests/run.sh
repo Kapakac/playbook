@@ -69,6 +69,7 @@ check "init copies templates" test -f "$proj/CLAUDE.md" -a -f "$proj/docs/duck-l
   -a -f "$proj/.claude/settings.json" -a -x "$proj/.claude/hooks/check-commit.sh"
 check "init copies the git hooks and the Codex files" test -x "$proj/.githooks/pre-push" -a -x "$proj/.githooks/commit-msg" \
   -a -f "$proj/.codex/hooks.json" -a -f "$proj/.codex/rules/agent-guard.rules"
+check "init skips the spec templates" test ! -e "$proj/openspec" -a -f "$pb/templates/openspec/changes/example/proposal.md"
 check "init puts the guard next to the git hooks" test -x "$proj/.githooks/agent-guard.sh"
 check "the guard copy equals the playbook script" cmp "$proj/.githooks/agent-guard.sh" "$pb/scripts/agent-guard.sh"
 check "init skips the shared branch template" test ! -e "$proj/shared"
@@ -358,6 +359,8 @@ set_checked "$checked"
 check "the list check passes after the line moves" check_pr "${stale[@]}"
 pb_change templates/.github/pull_request_template.md '' '## New section'
 check "a PR template change alone passes" check_pr "${stale[@]}"
+pb_change templates/openspec/changes/example/proposal.md '' x
+check "a spec template change alone passes" check_pr "${stale[@]}"
 pb_change templates/new.md '' x
 check_fails_with "a templates change fails" "changed templates/ since" check_pr "${stale[@]}"
 set_checked "$(git -C "$pb" rev-parse HEAD)"
