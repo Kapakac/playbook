@@ -6,13 +6,13 @@
 
 - В первом сообщении треда или сессии, вместе с проверкой ящика `/quack` (`rules.md`, «Процедуры»), даже если тред начат с конкретной задачи: тогда о недостающем — коротко, в конце первого ответа.
 - Перед PR (`prepare-pr.md`, шаг 2), если коммит playbook в метке общего блока поменялся.
-- Если CI краснит PR строкой «Список playbook сверен»: `check-pr.sh` из `main` playbook видит, что после её коммита поменялись раздел README «Что должно быть в проекте», `templates/` (кроме шаблона PR: его доносит автообновление правил) или `procedures/no-repo-agent.md`. PR автообновления правил (ветки `*-rules-auto`) он не краснит.
+- Если CI краснит PR строкой «Список playbook сверен»: `check-pr.sh` из `main` playbook видит, что после её коммита поменялись раздел README «Что должно быть в проекте», `templates/` (кроме шаблона PR: его доносит автообновление правил, и `templates/openspec/`: их берут из playbook, когда пишут спеку) или `procedures/no-repo-agent.md`. PR автообновления правил (ветки `*-rules-auto`) он не краснит.
 
 ## Поменялся ли список
 
 1. Обнови клон playbook (README playbook, раздел «Клон playbook»).
 2. Найди в разделе «Проект» `AGENTS.md` строку «Список playbook сверен: `playbook@<коммит>`». Строки нет — список ни разу не сверяли: переходи к сверке.
-3. Посмотри `git -C ../playbook diff <коммит> origin/main -- README.md templates/ ':!templates/.github/pull_request_template.md' procedures/no-repo-agent.md`. Если в диффе нет раздела README «Что должно быть в проекте», файлов `templates/` (шаблон PR не в счёт: его доносит автообновление правил) и блока из `no-repo-agent.md`, список не менялся: дальше ничего не делай и ничего не пиши. Если коммита нет в клоне (клон неполный), сначала `git -C ../playbook fetch --depth=500 origin main`; всё равно нет — проходи список целиком.
+3. Посмотри `git -C ../playbook diff <коммит> origin/main -- README.md templates/ ':!templates/.github/pull_request_template.md' ':!templates/openspec' procedures/no-repo-agent.md`. Если в диффе нет раздела README «Что должно быть в проекте», файлов `templates/` (шаблон PR и `templates/openspec/` не в счёт) и блока из `no-repo-agent.md`, список не менялся: дальше ничего не делай и ничего не пиши. Если коммита нет в клоне (клон неполный), сначала `git -C ../playbook fetch --depth=500 origin main`; всё равно нет — проходи список целиком.
 
 ## Сверка
 

@@ -9,7 +9,7 @@
 # A branch imposed by the agent's environment (claude/...) is allowed with a warning.
 # It also fails when the «Список playbook сверен» commit in AGENTS.md is missing or behind the
 # playbook clone this script lives in (or PLAYBOOK): the README section «Что должно быть в
-# проекте», templates/ (except the PR template) or procedures/no-repo-agent.md changed since
+# проекте», templates/ (except the PR template and templates/openspec/) or procedures/no-repo-agent.md changed since
 # (procedures/checklist.md).
 # It also fails when the PR text lacks a filled «README:» line from the PR template: «README:
 # обновлён …» or «README: не нужно, потому что <reason>».
@@ -88,8 +88,9 @@ if [ "$skip_project" = 0 ]; then
     if [ "$(checklist_section "$checked")" != "$(checklist_section HEAD)" ]; then
       changed+=("README «Что должно быть в проекте»")
     fi
-    # The PR template reaches projects through update-rules.sh, so it alone is no reason to re-check the list.
-    if ! git -C "$playbook" diff --quiet "$checked" HEAD -- templates ':!templates/.github/pull_request_template.md'; then
+    # The PR template reaches projects through update-rules.sh, and templates/openspec/ is read from the playbook
+    # when a spec is written (procedures/spec.md), so neither alone is a reason to re-check the list.
+    if ! git -C "$playbook" diff --quiet "$checked" HEAD -- templates ':!templates/.github/pull_request_template.md' ':!templates/openspec'; then
       changed+=("templates/")
     fi
     if ! git -C "$playbook" diff --quiet "$checked" HEAD -- procedures/no-repo-agent.md; then

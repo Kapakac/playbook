@@ -3,6 +3,7 @@
 #
 # Copies templates/ into the project without overwriting existing files, then syncs the shared rules.
 # templates/shared/ is the root of the separate shared branch, not part of main, so it is skipped.
+# templates/openspec/ holds per-change spec templates (procedures/spec.md), not project files, so it is skipped too.
 set -euo pipefail
 
 if [ $# -ne 2 ]; then
@@ -42,7 +43,7 @@ while read -r f; do
     AGENTS.md) created_agents=true ;;
     Makefile) created_makefile=true ;;
   esac
-done < <(cd "$playbook/templates" && find . -path ./shared -prune -o -type f -print | sort)
+done < <(cd "$playbook/templates" && find . \( -path ./shared -o -path ./openspec \) -prune -o -type f -print | sort)
 
 if $created_agents; then
   content=$(cat "$project/AGENTS.md")
