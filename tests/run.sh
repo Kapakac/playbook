@@ -301,7 +301,7 @@ pr_commit() {
   git -C "$pr" commit -q --author="$author" -m "$message"
 }
 check_pr() { (cd "$pr" && env PLAYBOOK="$pb" "$@" "$root/scripts/check-pr.sh" "$pr_base" HEAD); }
-printf '# P\n\n## Что должно быть в проекте\n\n- item\n\n### Что делает агент\n\n- step\n\n## Other\n\n- text\n' >"$pb/README.md"
+printf '# P\n\n## Что должно быть в проекте\n\n- item\n\n| Что | Как | Где | Проверка |\n| --- | --- | --- | --- |\n| file | is there | a | скрипт |\n| setting | is on | b | вручную |\n\n### Что делает агент\n\n- step\n\n## Other\n\n- text\n' >"$pb/README.md"
 git -C "$pb" commit -q -m "list" -- README.md
 checked=$(git -C "$pb" rev-parse HEAD)
 set_checked() {
@@ -355,7 +355,11 @@ check "a README change outside the list passes" check_pr "${stale[@]}"
 set_checked "${checked:0:7}"
 check "a short checked commit passes" check_pr "${stale[@]}"
 pb_change README.md '- step' '- new step'
-check_fails_with "a changed list fails" "changed README «Что должно быть в проекте» since" check_pr "${stale[@]}"
+check "a list change outside its rows passes" check_pr "${stale[@]}"
+pb_change README.md '| file | is there | a | скрипт |' '| file | is there and executable | a | скрипт |'
+check "a changed «скрипт» row passes: check-project.sh checks it" check_pr "${stale[@]}"
+pb_change README.md '| setting | is on | b | вручную |' '| setting | is on and saved | b | вручную |'
+check_fails_with "a changed «вручную» row fails" "changed the «вручную» items of README «Что должно быть в проекте» since" check_pr "${stale[@]}"
 check "a rules auto-update PR skips the list and README checks" check_pr PR_BRANCH=shop-rules-auto PR_TITLE='shop: обновить общие правила' PR_BODY=
 checked=$(git -C "$pb" rev-parse HEAD)
 set_checked "$checked"
@@ -365,7 +369,9 @@ check "a PR template change alone passes" check_pr "${stale[@]}"
 pb_change templates/openspec/changes/example/proposal.md '' x
 check "a spec template change alone passes" check_pr "${stale[@]}"
 pb_change templates/new.md '' x
-check_fails_with "a templates change fails" "changed templates/ since" check_pr "${stale[@]}"
+check "a templates change passes: check-project.sh checks it" check_pr "${stale[@]}"
+pb_change README.md '| setting | is on and saved | b | вручную |' '&\n| new setting | is on | c | вручную |'
+check_fails_with "a new «вручную» row fails" "«вручную» items" check_pr "${stale[@]}"
 set_checked "$(git -C "$pb" rev-parse HEAD)"
 pb_change procedures/no-repo-agent.md '' x
 check_fails_with "a no-repo-agent block change fails" "changed procedures/no-repo-agent.md since" check_pr "${stale[@]}"
