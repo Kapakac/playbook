@@ -7,3 +7,4 @@ lint:
 test:
 	tests/run.sh
 	tests/agent-guard.sh
+	tests/check-project.sh

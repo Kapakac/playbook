@@ -103,3 +103,9 @@ jobs:
             [ "$attempt" -lt 3 ] && sleep 10
           done
           echo "::warning::Could not merge $pr, it stays open for the owner"
+      # Runs after every rules mailing, even when nothing new came: the log lists what the project
+      # lacks of the README playbook section «Что должно быть в проекте», and the red run is the signal.
+      - name: The project has what the playbook asks for
+        if: ${{ !cancelled() }}
+        working-directory: project
+        run: ../playbook/scripts/check-project.sh .

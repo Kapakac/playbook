@@ -8,9 +8,9 @@
 # AGENTS.md when --key is not given. Errors go out as ::error:: lines; exit code 1 when any.
 # A branch imposed by the agent's environment (claude/...) is allowed with a warning.
 # It also fails when the «Список playbook сверен» commit in AGENTS.md is missing or behind the
-# playbook clone this script lives in (or PLAYBOOK): the README section «Что должно быть в
-# проекте», templates/ (except the PR template and templates/openspec/) or procedures/no-repo-agent.md changed since
-# (procedures/checklist.md).
+# playbook clone this script lives in (or PLAYBOOK): the rows marked «вручную» of the README section
+# «Что должно быть в проекте» or procedures/no-repo-agent.md changed since (procedures/checklist.md).
+# Rows marked «скрипт» and templates/ are checked by check-project.sh in the project's rules-update.yml.
 # It also fails when the PR text lacks a filled «README:» line from the PR template: «README:
 # обновлён …» or «README: не нужно, потому что <reason>».
 # Rules auto-update PRs (*-rules-auto branches) and the playbook repo itself skip these two checks.
@@ -63,9 +63,9 @@ if [ "$rest" = "$title" ] || ! [[ $rest =~ ^(-[0-9]+)?:\  ]]; then
   err "title '$title' does not start with '$key: ' or '$key-<task>: ' (prepare-pr.md, step 10)"
 fi
 
-checklist_section() {
+manual_items() {
   git -C "$playbook" show "$1:README.md" 2>/dev/null |
-    awk '/^## /{on = ($0 == "## Что должно быть в проекте")} on'
+    awk '/^## /{on = ($0 == "## Что должно быть в проекте")} on && /^\|/ && /\| *вручную *\| *$/'
 }
 
 playbook=${PLAYBOOK:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}
@@ -85,13 +85,8 @@ if [ "$skip_project" = 0 ]; then
     err "«Список playbook сверен» names playbook@$checked, which the playbook clone does not have: $checklist"
   else
     changed=()
-    if [ "$(checklist_section "$checked")" != "$(checklist_section HEAD)" ]; then
-      changed+=("README «Что должно быть в проекте»")
-    fi
-    # The PR template reaches projects through update-rules.sh, and templates/openspec/ is read from the playbook
-    # when a spec is written (procedures/spec.md), so neither alone is a reason to re-check the list.
-    if ! git -C "$playbook" diff --quiet "$checked" HEAD -- templates ':!templates/.github/pull_request_template.md' ':!templates/openspec'; then
-      changed+=("templates/")
+    if [ "$(manual_items "$checked")" != "$(manual_items HEAD)" ]; then
+      changed+=("the «вручную» items of README «Что должно быть в проекте»")
     fi
     if ! git -C "$playbook" diff --quiet "$checked" HEAD -- procedures/no-repo-agent.md; then
       changed+=("procedures/no-repo-agent.md")
