@@ -1,16 +1,19 @@
 name: CI
 
+# Only on PRs: main changes only through PRs, and the PR run has already checked the merge with
+# main, so a run after the merge would repeat it. A deploy starts from the push itself (README
+# playbook, «Минуты Actions»). Drafts are skipped: the agent pushes once, cleans up the PR text and
+# marks it ready, and CI runs then.
 on:
   pull_request:
-  push:
-    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   # Heavy jobs depend on this one and are skipped when only documentation changed.
@@ -18,6 +21,7 @@ jobs:
   # The quick checks that must run on every change are steps here, not jobs of their own:
   # GitHub bills every job as at least one minute.
   changes:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -37,7 +41,7 @@ jobs:
           persist-credentials: false
       - id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
         run: .playbook/scripts/ci-changes.sh "$BASE" >>"$GITHUB_OUTPUT"
       - name: Install gitleaks
         run: |
@@ -46,14 +50,10 @@ jobs:
           echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
       - name: Secret scan (gitleaks)
         run: gitleaks git --redact --no-banner --exit-code 1 .
-      # main changes only through PRs, and the PR has already run this.
       - name: Shared rules are not edited by hand
-        if: github.event_name == 'pull_request'
         run: make check-rules PLAYBOOK=.playbook
-      # On opened, reopened, edited and ready_for_review rules.yml checks the PR: an agent fixes the
-      # description right after opening, and a red step here would stay until the next push.
+      # An edit of the title or description alone is checked by rules.yml, without the whole CI.
       - name: PR branch, title, commits and text follow the playbook
-        if: github.event.action == 'synchronize'
         env:
           PR_BRANCH: ${{ github.head_ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}

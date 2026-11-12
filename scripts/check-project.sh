@@ -32,6 +32,11 @@ err() {
   errors=$((errors + 1))
 }
 
+# The on: of a workflow as an object; YAML 1.1 parsers read the key on as true.
+triggers() {
+  jq -c '.on // .["true"] // {} | if type == "string" then {(.): {}} elif type == "array" then map({(.): {}}) | add // {} else . end'
+}
+
 yaml_json() {
   if yq --version 2>&1 | grep -q mikefarah; then yq -o=json '.' "$1"; else yq '.' "$1"; fi
 }
@@ -159,16 +164,14 @@ elif json=$(yaml_json "$ci" 2>/dev/null); then
   else
     step_if() { jq -r --arg re "$1" '[.jobs.changes.steps[]? | select((.run // "") | test($re)) | .if // ""] | first // "none"' <<<"$json"; }
     [ "$(step_if 'gitleaks git')" != none ] || err "ci.yml: job changes has no gitleaks step"
-    case $(step_if 'make check-rules') in
-      none) err "ci.yml: job changes has no make check-rules step" ;;
-      *"github.event_name == 'pull_request'"*) ;;
-      *) err "ci.yml: the make check-rules step needs if: github.event_name == 'pull_request'" ;;
-    esac
+    [ "$(step_if 'make check-rules')" != none ] || err "ci.yml: job changes has no make check-rules step"
     case $(step_if 'check-pr\.sh') in
       none) err "ci.yml: job changes has no check-pr.sh step" ;;
-      *"github.event.action == 'synchronize'"*) ;;
-      *) err "ci.yml: the check-pr.sh step needs if: github.event.action == 'synchronize'" ;;
+      '') ;;
+      *) err "ci.yml: the check-pr.sh step must have no if: it runs on every CI event, rules.yml checks only edits of the PR text" ;;
     esac
+    jq -e '.jobs.changes.if // "" | test("!\\s*github\\.event\\.pull_request\\.draft")' <<<"$json" >/dev/null ||
+      err "ci.yml: job changes needs if: \${{ !github.event.pull_request.draft }} (CI skips drafts)"
     depth=$(jq -r '[.jobs.changes.steps[]? | select((.with.repository // "") | test("/playbook$")) | .with["fetch-depth"] // "none"] | first // "missing"' <<<"$json")
     case $depth in
       0) ;;
@@ -176,6 +179,11 @@ elif json=$(yaml_json "$ci" 2>/dev/null); then
       *) err "ci.yml: the playbook checkout in job changes needs fetch-depth: 0" ;;
     esac
   fi
+  on=$(triggers <<<"$json")
+  jq -e 'has("push")' <<<"$on" >/dev/null &&
+    err "ci.yml runs on push: CI only on PRs, a deploy starts from the push itself (README playbook, «Минуты Actions»)"
+  jq -e '["opened", "reopened", "synchronize", "ready_for_review"] - (.pull_request.types // []) | length == 0' <<<"$on" >/dev/null ||
+    err "ci.yml: on.pull_request.types needs [opened, reopened, synchronize, ready_for_review] as in the template"
   while IFS= read -r job; do
     [ -z "$job" ] || err "ci.yml: job $job runs gitleaks: make it a step of job changes (a separate job costs a minute)"
   done < <(jq -r '.jobs // {} | to_entries[] | select(.key != "changes") | select([.value.steps[]? | (.run // "") + (.uses // "")] | any(test("gitleaks"))) | .key' <<<"$json")
@@ -194,6 +202,30 @@ elif json=$(yaml_json "$ci" 2>/dev/null); then
 else
   err "ci.yml is not valid YAML"
 fi
+
+# A deploy starts from the push to main and skips documentation; CI no longer runs on main.
+# Keep doc_paths in step with is_doc in ci-changes.sh (tests/check-project.sh compares them).
+doc_paths='["*.md", ".github/*.md", "docs/**", "shared/**", "openspec/**"]'
+for wf in "$dir"/.github/workflows/*.yml "$dir"/.github/workflows/*.yaml; do
+  [ -f "$wf" ] || continue
+  name=.github/workflows/$(basename "$wf")
+  json=$(yaml_json "$wf" 2>/dev/null) || continue
+  on=$(triggers <<<"$json")
+  jq -e '.workflow_run.workflows // [] | index("CI")' <<<"$on" >/dev/null &&
+    err "$name waits for CI, which no longer runs on main: start it on push to main (README playbook, «Минуты Actions»)"
+  if ! jq -e 'has("workflow_run")' <<<"$on" >/dev/null; then
+    while IFS= read -r job; do
+      [ -z "$job" ] || err "$name: job $job checks workflow_run, which never starts it now: drop that if (README playbook, «Деплой»)"
+    done < <(jq -r '.jobs // {} | to_entries[] | select((.value.if // "") | tostring | test("workflow_run")) | .key' <<<"$json")
+  fi
+  jq -e 'has("push") and ((.push // {}).branches // ["main"] | index("main"))' <<<"$on" >/dev/null || continue
+  if jq -e '.push // {} | has("paths") or has("paths-ignore") | not' <<<"$on" >/dev/null; then
+    err "$name runs on every push to main: add paths-ignore for documentation (README playbook, «Минуты Actions»)"
+  fi
+  while IFS= read -r path; do
+    [ -z "$path" ] || err "$name: paths-ignore $path is not documentation by ci-changes.sh"
+  done < <(jq -r --argjson docs "$doc_paths" '((.push // {})["paths-ignore"] // []) - $docs | .[]' <<<"$on")
+done
 
 # «Агент может без вопроса»: present, every item with its mode.
 if ! grep -qx '### Агент может без вопроса' "$agents"; then

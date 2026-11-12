@@ -130,10 +130,20 @@ broken "a heavy job without the code condition fails" "$ci" "job check needs nee
   'sed -i.tmp "/if: needs.changes.outputs.code/d" "$proj/$ci"'
 broken "a heavy job without needs fails" "$ci" "job check needs needs: changes" \
   'sed -i.tmp "/^    needs: changes/d" "$proj/$ci"'
-broken "check-rules on every push fails" "$ci" "make check-rules step needs if" \
-  'sed -i.tmp "/if: github.event_name == .pull_request./d" "$proj/$ci"'
-broken "check-pr on every event fails" "$ci" "check-pr.sh step needs if" \
-  'sed -i.tmp "/if: github.event.action == .synchronize./d" "$proj/$ci"'
+broken "check-pr only on synchronize fails" "$ci" "check-pr.sh step must have no if" \
+  'sed -i.tmp "s/^      - name: PR branch, title.*/&\n        if: github.event.action == '"'"'synchronize'"'"'/" "$proj/$ci"'
+broken "CI on drafts fails" "$ci" "CI skips drafts" \
+  'sed -i.tmp "/if: \${{ !github.event.pull_request.draft }}/d" "$proj/$ci"'
+broken "CI on push to main fails" "$ci" "ci.yml runs on push" \
+  'sed -i.tmp "s/^  pull_request:$/  push:\n    branches: [main]\n&/" "$proj/$ci"'
+broken "CI on push in an on: list fails" "$ci" "ci.yml runs on push" \
+  'sed -i.tmp -e "/^  pull_request:$/,/^    types:/d" -e "s/^on:$/on: [push, pull_request]/" "$proj/$ci"'
+broken "CI with only ready_for_review fails" "$ci" "needs [opened, reopened, synchronize, ready_for_review]" \
+  'sed -i.tmp "s/types: \[opened, reopened, synchronize, ready_for_review\]/types: [ready_for_review]/" "$proj/$ci"'
+broken "check-pr only on opened fails" "$ci" "check-pr.sh step must have no if" \
+  'sed -i.tmp "s/^      - name: PR branch, title.*/&\n        if: github.event.action == '"'"'opened'"'"'/" "$proj/$ci"'
+broken "CI without ready_for_review fails" "$ci" "needs [opened, reopened, synchronize, ready_for_review]" \
+  'sed -i.tmp "/types: \[opened, reopened, synchronize, ready_for_review\]/d" "$proj/$ci"'
 broken "a shallow playbook checkout fails" "$ci" "needs fetch-depth: 0" \
   'awk "/path: .playbook/{print; getline; print \"          fetch-depth: 1\"; next} 1" "$work/saved" >"$proj/$ci"'
 broken "a CI without gitleaks fails" "$ci" "no gitleaks step" 'sed -i.tmp "s/gitleaks git/echo/" "$proj/$ci"'
@@ -161,7 +171,67 @@ cp "$pb/templates/$ci" "$proj/$ci"
 printf 'jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps: []\n' >"$proj/.github/workflows/deploy.yml"
 fails "another workflow is checked too" "deploy.yml has no top-level permissions"
 fails "another workflow's jobs are checked too" "deploy.yml: job x has no timeout-minutes"
-rm "$proj/.github/workflows/deploy.yml"
+deploy=.github/workflows/deploy.yml
+cat >"$proj/$deploy" <<'EOF2'
+name: Deploy
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["*.md", ".github/*.md", "docs/**", "shared/**", "openspec/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: ./deploy.sh
+EOF2
+passes "a deploy on push to main without documentation passes"
+broken "a deploy after CI fails" "$deploy" "waits for CI" \
+  'sed -i.tmp "s/^  push:$/  workflow_run:\n    workflows: [CI]\n    types: [completed]\n&/" "$proj/$deploy"'
+broken "a deploy on every push fails" "$deploy" "runs on every push to main" \
+  'sed -i.tmp "/paths-ignore/d" "$proj/$deploy"'
+broken "a deploy that ignores code fails" "$deploy" "paths-ignore src/** is not documentation" \
+  'sed -i.tmp "s|\"openspec/\*\*\"|&, \"src/**\"|" "$proj/$deploy"'
+broken "a deploy still checking workflow_run fails" "$deploy" "job deploy checks workflow_run" \
+  'sed -i.tmp "s/^    runs-on: ubuntu-latest$/    if: github.event.workflow_run.conclusion == '"'"'success'"'"'\n&/" "$proj/$deploy"'
+broken "a deploy on every push without branches fails" "$deploy" "runs on every push to main" \
+  'sed -i.tmp -e "/paths-ignore/d" -e "/branches: \[main\]/d" "$proj/$deploy"'
+broken "a deploy on: push string fails" "$deploy" "runs on every push to main" \
+  'sed -i.tmp -e "/^  push:/,/^  workflow_dispatch:/d" -e "s/^on:$/on: push/" "$proj/$deploy"'
+allowed "a deploy with its own paths passes" "$deploy" \
+  'sed -i.tmp "s|^    paths-ignore: .*|    paths: [\"src/**\"]|" "$proj/$deploy"'
+rm "$proj/$deploy"
+
+# check-project.sh lists the documentation paths of ci-changes.sh for paths-ignore: they must agree.
+docs_repo=$work/docs-repo
+git init -q -b main "$docs_repo"
+git -C "$docs_repo" commit -q --allow-empty -m base
+for path in README.md .github/CONTRIBUTING.md docs/a/b.txt shared/x.yml openspec/specs/s.md; do
+  mkdir -p "$docs_repo/$(dirname "$path")"
+  echo x >"$docs_repo/$path"
+done
+git -C "$docs_repo" add -A
+git -C "$docs_repo" commit -q -m docs
+# Every pattern, filled in, is documentation for ci-changes.sh; the list itself is pinned too.
+patterns=$(sed -nE "s/^doc_paths='(.*)'$/\\1/p" "$pb/scripts/check-project.sh" | jq -r '.[]')
+while IFS= read -r pattern; do
+  sample=${pattern//\*\*/a/b.txt}
+  sample=${sample//\*/x}
+  mkdir -p "$docs_repo/$(dirname "$sample")"
+  echo x >"$docs_repo/$sample"
+done <<<"$patterns"
+git -C "$docs_repo" add -A
+git -C "$docs_repo" commit -q -m patterns
+if [ "$(cd "$docs_repo" && "$pb/scripts/ci-changes.sh" HEAD~2 2>/dev/null)" = code=false ] &&
+  [ "$(sort <<<"$patterns" | tr '\n' ' ')" = "*.md .github/*.md docs/** openspec/** shared/** " ]; then
+  echo "ok   doc_paths in check-project.sh match the documentation of ci-changes.sh"
+else
+  echo "FAIL doc_paths in check-project.sh match the documentation of ci-changes.sh (got: $patterns)" >&2
+  failures=$((failures + 1))
+fi
 
 broken "an item without a mode fails" AGENTS.md "no mode" \
   'sed -i.tmp "s/^### Агент может без вопроса$/&\n\n- обновлять зависимости/" "$proj/AGENTS.md"'
