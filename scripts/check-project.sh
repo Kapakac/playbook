@@ -225,6 +225,16 @@ for wf in "$dir"/.github/workflows/*.yml "$dir"/.github/workflows/*.yaml; do
   while IFS= read -r path; do
     [ -z "$path" ] || err "$name: paths-ignore $path is not documentation by ci-changes.sh"
   done < <(jq -r --argjson docs "$doc_paths" '((.push // {})["paths-ignore"] // []) - $docs | .[]' <<<"$on")
+  # Single check runs let through a PR without CI and one merged right after leaving draft; the whole ci.yml run does not.
+  if ! grep -qF 'actions/workflows/ci.yml/runs?head_sha=' "$wf"; then
+    err "$name has no step «CI of the merged PR is green» checking the last ci.yml run (README playbook, «Деплой»)"
+  elif grep -q 'check-runs' "$wf"; then
+    err "$name still checks single check runs of the merged PR: keep only the step «CI of the merged PR is green» (README playbook, «Деплой»)"
+  fi
+  # Job permissions replace the top-level ones, so look at what each job actually gets.
+  jq -e 'def can($p): . == "read-all" or . == "write-all" or (type == "object" and (.[$p] == "read" or .[$p] == "write"));
+    .permissions as $top | [.jobs // {} | .[] | .permissions // $top] | any(can("actions") and can("pull-requests"))' <<<"$json" >/dev/null ||
+    err "$name has no job with actions: read and pull-requests: read for the step «CI of the merged PR is green» (README playbook, «Деплой»)"
 done
 
 # «Агент может без вопроса»: present, every item with its mode.
