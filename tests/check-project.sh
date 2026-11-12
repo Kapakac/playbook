@@ -181,11 +181,16 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: CI of the merged PR is green
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$head&per_page=1"
       - run: ./deploy.sh
 EOF2
 passes "a deploy on push to main without documentation passes"
@@ -203,6 +208,18 @@ broken "a deploy on: push string fails" "$deploy" "runs on every push to main" \
   'sed -i.tmp -e "/^  push:/,/^  workflow_dispatch:/d" -e "s/^on:$/on: push/" "$proj/$deploy"'
 allowed "a deploy with its own paths passes" "$deploy" \
   'sed -i.tmp "s|^    paths-ignore: .*|    paths: [\"src/**\"]|" "$proj/$deploy"'
+broken "a deploy without the CI run step fails" "$deploy" "has no step «CI of the merged PR is green»" \
+  'sed -i.tmp "s|actions/workflows/ci.yml/runs|commits/\$head/statuses|" "$proj/$deploy"'
+broken "a deploy checking single check runs fails" "$deploy" "still checks single check runs" \
+  'sed -i.tmp "s|^      - run: ./deploy.sh$|          gh api \"repos/\$GITHUB_REPOSITORY/commits/\$head/check-runs\"\n&|" "$proj/$deploy"'
+broken "a deploy without actions: read fails" "$deploy" "has no job with actions: read and pull-requests: read" \
+  'sed -i.tmp "/^  actions: read$/d" "$proj/$deploy"'
+broken "a deploy without pull-requests: read fails" "$deploy" "has no job with actions: read and pull-requests: read" \
+  'sed -i.tmp "/^  pull-requests: read$/d" "$proj/$deploy"'
+broken "a deploy job whose own permissions drop actions: read fails" "$deploy" "has no job with actions: read and pull-requests: read" \
+  'sed -i.tmp "s/^    timeout-minutes: 10$/&\n    permissions:\n      contents: read/" "$proj/$deploy"'
+allowed "a deploy with the permissions on its job passes" "$deploy" \
+  'sed -i.tmp -e "/^  actions: read$/d" -e "s/^    timeout-minutes: 10$/&\n    permissions:\n      contents: read\n      actions: read\n      pull-requests: read/" "$proj/$deploy"'
 rm "$proj/$deploy"
 
 # check-project.sh lists the documentation paths of ci-changes.sh for paths-ignore: they must agree.
