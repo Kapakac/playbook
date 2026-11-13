@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Usage: merged-pr-ci.sh
 #
-# First step of a project's deploy.yml (README, «Деплой»): the deploy runs on push to main and CI does
-# not, so this checks that the last ci.yml run of the merged PR head completed with success.
+# The job gate of a project's deploy.yml, a job with no secrets that the deploy job needs (README,
+# «Деплой»): the deploy runs on push to main and CI does not, so this checks that the last ci.yml run
+# of the merged PR head completed with success.
 # The project calls it from a checkout of playbook main, so a fix here reaches every deploy at once.
 # Needs gh with GH_TOKEN (actions: read, pull-requests: read), GITHUB_REPOSITORY and GITHUB_SHA.
 set -euo pipefail

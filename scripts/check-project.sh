@@ -219,7 +219,7 @@ for wf in "$dir"/.github/workflows/*.yml "$dir"/.github/workflows/*.yaml; do
 done
 
 # The deploy is deploy.yml: other workflows on push to main (settings, digests) are not deploys.
-# It starts from the push to main, skips documentation and first runs merged-pr-ci.sh of playbook main.
+# It starts from the push to main, skips documentation and waits for a job running merged-pr-ci.sh of playbook main.
 # Keep doc_paths in step with is_doc in ci-changes.sh (tests/check-project.sh compares them).
 doc_paths='["*.md", ".github/*.md", "docs/**", "shared/**", "openspec/**"]'
 for wf in "$dir"/.github/workflows/deploy.yml "$dir"/.github/workflows/deploy.yaml; do
@@ -234,18 +234,56 @@ for wf in "$dir"/.github/workflows/deploy.yml "$dir"/.github/workflows/deploy.ya
   while IFS= read -r path; do
     [ -z "$path" ] || err "$name: paths-ignore $path is not documentation by ci-changes.sh"
   done < <(jq -r --argjson docs "$doc_paths" '((.push // {})["paths-ignore"] // []) - $docs | .[]' <<<"$on")
-  # The check lives in playbook main, so its fixes reach the deploy without a PR in the project.
-  if ! jq -e '[.jobs // {} | .[] | .steps[]? | select((.with.repository // "") | test("/playbook$"))] | length > 0' <<<"$json" >/dev/null ||
-    ! grep -qE 'playbook/scripts/merged-pr-ci\.sh' "$wf"; then
-    err "$name has no step «CI of the merged PR is green» running scripts/merged-pr-ci.sh from a checkout of playbook main (README playbook, «Деплой»)"
-  fi
   if grep -qE 'check-runs|actions/workflows/ci\.yml/runs' "$wf"; then
-    err "$name still checks CI of the merged PR by itself: replace that step with the call of merged-pr-ci.sh (README playbook, «Деплой»)"
+    err "$name still checks CI of the merged PR by itself: replace that step with the job gate (README playbook, «Деплой»)"
   fi
-  # Job permissions replace the top-level ones, so look at what each job actually gets.
-  jq -e 'def can($p): . == "read-all" or . == "write-all" or (type == "object" and (.[$p] == "read" or .[$p] == "write"));
-    .permissions as $top | [.jobs // {} | .[] | .permissions // $top] | any(can("actions") and can("pull-requests"))' <<<"$json" >/dev/null ||
-    err "$name has no job with actions: read and pull-requests: read for the step «CI of the merged PR is green» (README playbook, «Деплой»)"
+  # The check is a job of its own, gate: no secrets, only the playbook checkout and the call of
+  # merged-pr-ci.sh from playbook main, and every other job waits for it. A step in the deploy job
+  # could write $GITHUB_ENV or $GITHUB_PATH and so take over the steps that hold the server key.
+  gates=$(jq -c '[.jobs // {} | to_entries[] | select([.value.steps[]? | (.run // "") | test("playbook/scripts/merged-pr-ci\\.sh")] | any) | .key]' <<<"$json")
+  if [ "$gates" = '[]' ]; then
+    err "$name has no job «CI of the merged PR is green» running scripts/merged-pr-ci.sh from a checkout of playbook main (README playbook, «Деплой»)"
+    continue
+  fi
+  while IFS=$'\t' read -r job problem; do
+    case $problem in
+      mixed) err "$name: job $job has steps other than the playbook checkout and merged-pr-ci.sh: move the check to a job gate of its own, the deploy job gets needs: gate (README playbook, «Деплой»)" ;;
+      checkout) err "$name: job $job does not check out playbook for merged-pr-ci.sh (README playbook, «Деплой»)" ;;
+      secrets) err "$name: job $job uses secrets: the job «CI of the merged PR is green» gets none, not even from the top-level env (README playbook, «Деплой»)" ;;
+      permissions) err "$name: job $job needs its own permissions: actions: read and pull-requests: read, nothing else (README playbook, «Деплой»)" ;;
+      continue) err "$name: job $job must not continue-on-error: a red check has to stop the deploy (README playbook, «Деплой»)" ;;
+    esac
+  done < <(jq -r '
+    def script: (.run // "") | test("^\\s*\\S*playbook/scripts/merged-pr-ci\\.sh\\s*$");
+    def checkout: ((.uses // "") | startswith("actions/checkout@")) and ((.with.repository // "") | test("/playbook$"));
+    (.env // {} | tostring | test("secrets\\.")) as $top_secrets
+    | .jobs // {} | to_entries[]
+    | select([.value.steps[]? | (.run // "") | test("playbook/scripts/merged-pr-ci\\.sh")] | any)
+    | .key as $k | .value as $j
+    | (if [$j.steps[] | select((script or checkout) | not)] | length > 0 then "mixed" else empty end),
+      (if [$j.steps[] | select(checkout)] | length == 0 then "checkout" else empty end),
+      (if $top_secrets or ($j | tostring | test("secrets\\.")) then "secrets" else empty end),
+      (if ($j.permissions | type) != "object" or ($j.permissions | to_entries | map("\(.key)=\(.value)") | sort) != ["actions=read", "pull-requests=read"] then "permissions" else empty end),
+      (if ($j["continue-on-error"] // false) != false or ([$j.steps[] | .["continue-on-error"] // false] | any(. != false)) then "continue" else empty end)
+    | "\($k)\t\(.)"' <<<"$json")
+  # Every other job waits for a gate, directly or through jobs that do, and not with if: always().
+  while IFS=$'\t' read -r job problem; do
+    case $problem in
+      needs) err "$name: job $job does not wait for the job «CI of the merged PR is green»: add needs: gate (README playbook, «Деплой»)" ;;
+      if) err "$name: job $job runs even when the job «CI of the merged PR is green» fails: drop always(), failure() or cancelled() from its if" ;;
+    esac
+  done < <(jq -r --argjson gates "$gates" '
+    (.jobs // {}) as $jobs
+    | def needs($j): ($jobs[$j].needs // []) | if type == "string" then [.] else . end;
+      def waits($j; $seen):
+        if ($seen | index($j)) then false
+        elif ([needs($j)[] | select(. as $n | $gates | index($n))] | length > 0) then true
+        else (needs($j) | length > 0) and any(needs($j)[]; waits(.; $seen + [$j]))
+        end;
+    $jobs | keys[] | select(. as $k | $gates | index($k) | not) as $k
+    | if (waits($k; []) | not) then "\($k)\tneeds"
+      elif (($jobs[$k].if // "") | tostring | test("always\\(|failure\\(|cancelled\\(")) then "\($k)\tif"
+      else empty end' <<<"$json")
 done
 
 # «Агент может без вопроса»: present, every item with its mode.
