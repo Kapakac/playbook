@@ -46,11 +46,14 @@ else
     if [ -n "$old" ]; then
       pb show "$old:$template" >"$work/old" 2>/dev/null || : >"$work/old"
     fi
-    # A new line goes after the nearest earlier template line that occurs once in the project's file,
-    # past the lines that follow it in both files, so a new checkbox lands in its own section.
+    # A line dropped from the playbook template is dropped from the project's file too, so a changed
+    # line replaces the old one. A new line goes after the nearest earlier template line that occurs
+    # once in the project's file, past the lines that follow it in both files, so a new checkbox lands
+    # in its own section.
     awk '
       FILENAME == ARGV[1] { old[$0] = 1; next }
-      FILENAME == ARGV[2] { p[++n] = $0; next }
+      FILENAME == ARGV[2] { p[++n] = $0; cur[$0] = 1; next }
+      $0 != "" && ($0 in old) && !($0 in cur) { next }
       { q[++m] = $0; cnt[$0]++ }
       function insert(at, line,   t) {
         for (t = m; t >= at; t--) q[t + 1] = q[t]

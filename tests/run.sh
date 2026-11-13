@@ -187,11 +187,14 @@ check "marker kept after a readme-only commit" test "$(marker)" = "$sha3"
 
 sed -i.tmp 's/^- \[ \] CI зелёный$/- [ ] CI зелёный\
 - [ ] project check/' "$tpl" && rm -f "$tpl.tmp"
-sed -i.tmp '/^Что нашлось и что исправлено\.$/d' "$tpl" && rm -f "$tpl.tmp"
+sed -i.tmp '/^Что нашлось и что исправлено\./d' "$tpl" && rm -f "$tpl.tmp"
 sed -i.tmp 's/^- \[ \] CI зелёный$/- [ ] CI зелёный\
 - [ ] new check/' "$pb/templates/.github/pull_request_template.md"
 rm -f "$pb/templates/.github/pull_request_template.md.tmp"
 printf '\n## New section\n' >>"$pb/templates/.github/pull_request_template.md"
+# shellcheck disable=SC2016
+sed -i.tmp 's/^- \[ \] `make test`$/- [ ] `make test` changed/' "$pb/templates/.github/pull_request_template.md"
+rm -f "$pb/templates/.github/pull_request_template.md.tmp"
 git -C "$pb" commit -q -am "template lines"
 sha4=$(git -C "$pb" rev-parse HEAD)
 check "update syncs after a template change" update
@@ -199,7 +202,13 @@ check "marker moves to the template commit" test "$(marker)" = "$sha4"
 after_ci() { grep -A1 -xF -- '- [ ] CI зелёный' "$tpl" | tail -n 1; }
 check "new template line placed after its neighbour" test "$(after_ci)" = '- [ ] new check'
 check "project template line kept" grep -qxF -- '- [ ] project check' "$tpl"
-check "removed template line not added back" test "$(grep -cxF 'Что нашлось и что исправлено.' "$tpl")" = 0
+check "removed template line not added back" test "$(grep -cE '^Что нашлось и что исправлено\.' "$tpl")" = 0
+# shellcheck disable=SC2016
+after_lint() { grep -A1 -xF -- '- [ ] `make lint`' "$tpl" | tail -n 1; }
+# shellcheck disable=SC2016
+check "changed template line replaces the old one in place" test "$(after_lint)" = '- [ ] `make test` changed'
+# shellcheck disable=SC2016
+check "old template line is dropped" test "$(grep -cxF -- '- [ ] `make test`' "$tpl")" = 0
 check "new section appended" test "$(tail -n 2 "$tpl" | head -n 1)" = "" -a "$(tail -n 1 "$tpl")" = "## New section"
 cp "$tpl" "$work/tpl.after"
 check_output "second update has nothing new" 0 "nothing new" update
@@ -349,6 +358,21 @@ readme_fails "not needed with only a comma fails" "without a reason" 'README: н
 readme_fails "another README answer fails" "says 'потом'" 'README: потом'
 readme_fails "README.md mentioned elsewhere does not count" "has no «README:» line" '- [x] Документы актуальны: README.md, docs/'
 check "the template line is in the PR template" grep -qx 'README: обновлён / не нужно, потому что …' "$root/templates/.github/pull_request_template.md"
+ticked_fails() { check_fails_with "$1" "ticked box says it was not done" readme "$readme_ok"$'\n\n'"$2"; }
+# shellcheck disable=SC2016
+ticked_fails "a ticked make test that was not run fails" '- [x] `make test` — не запускал, нет Docker'
+# shellcheck disable=SC2016
+ticked_fails "a ticked box with a capital Не fails" '* [X] `make lint` (Не прогонял)'
+# shellcheck disable=SC2016
+ticked_fails "a ticked make lint that was not needed fails" '- [x] `make lint` — не нужен, Go не менялся'
+# shellcheck disable=SC2016
+ticked_fails "a ticked make test with unchanged code fails" '- [x] `make test` — код не менялся'
+ticked_fails "a ticked handbook box that was not opened fails" $'- [x] Справочник группы: не проверял, не затрагивается\r'
+# shellcheck disable=SC2016
+check "an unticked box that was not run passes" readme "$readme_ok"$'\n\n- [ ] `make test` — не запускал, нет Docker'
+# shellcheck disable=SC2016
+check "a ticked box that was done passes" readme "$readme_ok"$'\n\n- [x] `make test`\n\n## Не проверено\n\n- не запускал тесты с базой'
+check "the PR template passes with every box ticked" readme "$readme_ok"$'\n\n'"$(sed 's/^- \[ \]/- [x]/' "$root/templates/.github/pull_request_template.md")"
 stale=(PR_BRANCH=shop-12-cart-69d429 PR_TITLE='shop-12: корзина' PR_BODY="$readme_ok")
 pb_change README.md '- text' '- other text'
 check "a README change outside the list passes" check_pr "${stale[@]}"
