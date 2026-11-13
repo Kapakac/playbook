@@ -181,22 +181,31 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
-  pull-requests: read
 jobs:
-  deploy:
+  gate:
+    name: CI of the merged PR is green
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/playbook
           path: .playbook
           persist-credentials: false
-      - name: CI of the merged PR is green
-        env:
+      - env:
           GH_TOKEN: ${{ github.token }}
         run: .playbook/scripts/merged-pr-ci.sh
+  deploy:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
       - run: ./deploy.sh
 EOF2
 passes "a deploy on push to main without documentation passes"
@@ -207,29 +216,49 @@ broken "a deploy on every push fails" "$deploy" "runs on every push to main" \
 broken "a deploy that ignores code fails" "$deploy" "paths-ignore src/** is not documentation" \
   'sed -i.tmp "s|\"openspec/\*\*\"|&, \"src/**\"|" "$proj/$deploy"'
 broken "a deploy still checking workflow_run fails" "$deploy" "job deploy checks workflow_run" \
-  'sed -i.tmp "s/^    runs-on: ubuntu-latest$/    if: github.event.workflow_run.conclusion == '"'"'success'"'"'\n&/" "$proj/$deploy"'
+  'sed -i.tmp "s/^    needs: gate$/&\n    if: github.event.workflow_run.conclusion == '"'"'success'"'"'/" "$proj/$deploy"'
 broken "a deploy on every push without branches fails" "$deploy" "runs on every push to main" \
   'sed -i.tmp -e "/paths-ignore/d" -e "/branches: \[main\]/d" "$proj/$deploy"'
 broken "a deploy on: push string fails" "$deploy" "runs on every push to main" \
   'sed -i.tmp -e "/^  push:/,/^  workflow_dispatch:/d" -e "s/^on:$/on: push/" "$proj/$deploy"'
 allowed "a deploy with its own paths passes" "$deploy" \
   'sed -i.tmp "s|^    paths-ignore: .*|    paths: [\"src/**\"]|" "$proj/$deploy"'
-broken "a deploy without merged-pr-ci.sh fails" "$deploy" "has no step «CI of the merged PR is green»" \
+broken "a deploy without merged-pr-ci.sh fails" "$deploy" "has no job «CI of the merged PR is green»" \
   'sed -i.tmp "s|\.playbook/scripts/merged-pr-ci.sh|./ci-green.sh|" "$proj/$deploy"'
-broken "a deploy without the playbook checkout fails" "$deploy" "has no step «CI of the merged PR is green»" \
+broken "a deploy without the playbook checkout fails" "$deploy" "does not check out playbook" \
   'sed -i.tmp "s|/playbook$|/tools|" "$proj/$deploy"'
 broken "a deploy with its own copy of the step fails" "$deploy" "still checks CI of the merged PR by itself" \
   'sed -i.tmp "s|^      - run: ./deploy.sh$|          gh api \"repos/\$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=\$head\"\n&|" "$proj/$deploy"'
 broken "a deploy checking single check runs fails" "$deploy" "still checks CI of the merged PR by itself" \
   'sed -i.tmp "s|^      - run: ./deploy.sh$|          gh api \"repos/\$GITHUB_REPOSITORY/commits/\$head/check-runs\"\n&|" "$proj/$deploy"'
-broken "a deploy without actions: read fails" "$deploy" "has no job with actions: read and pull-requests: read" \
-  'sed -i.tmp "/^  actions: read$/d" "$proj/$deploy"'
-broken "a deploy without pull-requests: read fails" "$deploy" "has no job with actions: read and pull-requests: read" \
-  'sed -i.tmp "/^  pull-requests: read$/d" "$proj/$deploy"'
-broken "a deploy job whose own permissions drop actions: read fails" "$deploy" "has no job with actions: read and pull-requests: read" \
-  'sed -i.tmp "s/^    timeout-minutes: 10$/&\n    permissions:\n      contents: read/" "$proj/$deploy"'
-allowed "a deploy with the permissions on its job passes" "$deploy" \
-  'sed -i.tmp -e "/^  actions: read$/d" -e "s/^    timeout-minutes: 10$/&\n    permissions:\n      contents: read\n      actions: read\n      pull-requests: read/" "$proj/$deploy"'
+broken "a gate without actions: read fails" "$deploy" "job gate needs its own permissions: actions: read and pull-requests: read" \
+  'sed -i.tmp "/^      actions: read$/d" "$proj/$deploy"'
+broken "a gate without pull-requests: read fails" "$deploy" "job gate needs its own permissions: actions: read and pull-requests: read" \
+  'sed -i.tmp "/^      pull-requests: read$/d" "$proj/$deploy"'
+broken "a gate with the top-level permissions fails" "$deploy" "job gate needs its own permissions" \
+  'sed -i.tmp -e "/^    permissions:$/d" -e "/^      actions: read$/d" -e "/^      pull-requests: read$/d" -e "s/^  contents: read$/&\n  actions: read\n  pull-requests: read/" "$proj/$deploy"'
+broken "a gate with contents: read fails" "$deploy" "job gate needs its own permissions: actions: read and pull-requests: read, nothing else" \
+  'sed -i.tmp "s/^      pull-requests: read$/&\n      contents: read/" "$proj/$deploy"'
+broken "the old step inside the deploy job fails" "$deploy" "job deploy has steps other than the playbook checkout and merged-pr-ci.sh" \
+  'sed -i.tmp -e "/^  gate:$/,/^  deploy:$/{/^  deploy:$/!d;}" -e "/^    needs: gate$/d" -e "s|^      - run: ./deploy.sh$|      - uses: actions/checkout@v4\n        with:\n          repository: \${{ github.repository_owner }}/playbook\n          path: .playbook\n          persist-credentials: false\n      - env:\n          GH_TOKEN: \${{ github.token }}\n        run: .playbook/scripts/merged-pr-ci.sh\n&|" "$proj/$deploy"'
+broken "a gate with a secret fails" "$deploy" "job gate uses secrets" \
+  'sed -i.tmp "s/^          GH_TOKEN: .*/          GH_TOKEN: \${{ secrets.DEPLOY_TOKEN }}/" "$proj/$deploy"'
+broken "a gate under a top-level env with a secret fails" "$deploy" "job gate uses secrets" \
+  'sed -i.tmp "s/^permissions:$/env:\n  SSH_KEY: \${{ secrets.SSH_KEY }}\n&/" "$proj/$deploy"'
+broken "a gate with another step fails" "$deploy" "job gate has steps other than the playbook checkout and merged-pr-ci.sh" \
+  'sed -i.tmp "s|^        run: .playbook/scripts/merged-pr-ci.sh$|&\n      - run: ./prepare.sh|" "$proj/$deploy"'
+broken "a gate whose call does more fails" "$deploy" "job gate has steps other than the playbook checkout and merged-pr-ci.sh" \
+  'sed -i.tmp "s|^        run: .playbook/scripts/merged-pr-ci.sh$|& \&\& ./prepare.sh|" "$proj/$deploy"'
+broken "a gate that may fail fails" "$deploy" "job gate must not continue-on-error" \
+  'sed -i.tmp "s/^    timeout-minutes: 5$/&\n    continue-on-error: true/" "$proj/$deploy"'
+broken "a deploy not waiting for the gate fails" "$deploy" "job deploy does not wait for the job «CI of the merged PR is green»" \
+  'sed -i.tmp "/^    needs: gate$/d" "$proj/$deploy"'
+broken "a deploy running after a failed gate fails" "$deploy" "job deploy runs even when the job «CI of the merged PR is green» fails" \
+  'sed -i.tmp "s/^    needs: gate$/&\n    if: always()/" "$proj/$deploy"'
+allowed "a job waiting for the gate through another job passes" "$deploy" \
+  'printf "  notify:\n    needs: [deploy]\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: ./notify.sh\n" >>"$proj/$deploy"'
+broken "a job beside the gate fails" "$deploy" "job notify does not wait for the job «CI of the merged PR is green»" \
+  'printf "  notify:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: ./notify.sh\n" >>"$proj/$deploy"'
 rm "$proj/$deploy"
 # Other workflows on push to main (repo settings, digests) are not deploys.
 cat >"$proj/.github/workflows/settings.yml" <<'EOF2'
