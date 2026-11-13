@@ -42,3 +42,26 @@ jobs:
       - uses: actions/checkout@v4
       - run: make lint
       - run: make test
+
+  # Temporary probe for PR #56: the gate job of README «Деплой», as it is.
+  gate-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/playbook
+          path: .playbook
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: .playbook/scripts/merged-pr-ci.sh
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" --jq 'length'
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=1" --jq '.total_count'
