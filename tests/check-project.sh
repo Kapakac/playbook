@@ -188,9 +188,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/playbook
+          path: .playbook
+          persist-credentials: false
       - name: CI of the merged PR is green
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$head&per_page=1"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .playbook/scripts/merged-pr-ci.sh
       - run: ./deploy.sh
 EOF2
 passes "a deploy on push to main without documentation passes"
@@ -208,9 +214,13 @@ broken "a deploy on: push string fails" "$deploy" "runs on every push to main" \
   'sed -i.tmp -e "/^  push:/,/^  workflow_dispatch:/d" -e "s/^on:$/on: push/" "$proj/$deploy"'
 allowed "a deploy with its own paths passes" "$deploy" \
   'sed -i.tmp "s|^    paths-ignore: .*|    paths: [\"src/**\"]|" "$proj/$deploy"'
-broken "a deploy without the CI run step fails" "$deploy" "has no step «CI of the merged PR is green»" \
-  'sed -i.tmp "s|actions/workflows/ci.yml/runs|commits/\$head/statuses|" "$proj/$deploy"'
-broken "a deploy checking single check runs fails" "$deploy" "still checks single check runs" \
+broken "a deploy without merged-pr-ci.sh fails" "$deploy" "has no step «CI of the merged PR is green»" \
+  'sed -i.tmp "s|\.playbook/scripts/merged-pr-ci.sh|./ci-green.sh|" "$proj/$deploy"'
+broken "a deploy without the playbook checkout fails" "$deploy" "has no step «CI of the merged PR is green»" \
+  'sed -i.tmp "s|/playbook$|/tools|" "$proj/$deploy"'
+broken "a deploy with its own copy of the step fails" "$deploy" "still checks CI of the merged PR by itself" \
+  'sed -i.tmp "s|^      - run: ./deploy.sh$|          gh api \"repos/\$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=\$head\"\n&|" "$proj/$deploy"'
+broken "a deploy checking single check runs fails" "$deploy" "still checks CI of the merged PR by itself" \
   'sed -i.tmp "s|^      - run: ./deploy.sh$|          gh api \"repos/\$GITHUB_REPOSITORY/commits/\$head/check-runs\"\n&|" "$proj/$deploy"'
 broken "a deploy without actions: read fails" "$deploy" "has no job with actions: read and pull-requests: read" \
   'sed -i.tmp "/^  actions: read$/d" "$proj/$deploy"'
@@ -221,6 +231,22 @@ broken "a deploy job whose own permissions drop actions: read fails" "$deploy" "
 allowed "a deploy with the permissions on its job passes" "$deploy" \
   'sed -i.tmp -e "/^  actions: read$/d" -e "s/^    timeout-minutes: 10$/&\n    permissions:\n      contents: read\n      actions: read\n      pull-requests: read/" "$proj/$deploy"'
 rm "$proj/$deploy"
+# Other workflows on push to main (repo settings, digests) are not deploys.
+cat >"$proj/.github/workflows/settings.yml" <<'EOF2'
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: ./apply.sh
+EOF2
+passes "a workflow on push to main that is not deploy.yml passes"
+rm "$proj/.github/workflows/settings.yml"
 
 # check-project.sh lists the documentation paths of ci-changes.sh for paths-ignore: they must agree.
 docs_repo=$work/docs-repo
