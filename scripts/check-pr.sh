@@ -14,6 +14,8 @@
 # It also fails when the PR text lacks a filled «README:» line from the PR template: «README:
 # обновлён …» or «README: не нужно, потому что <reason>».
 # Rules auto-update PRs (*-rules-auto branches) and the playbook repo itself skip these two checks.
+# It also fails on a ticked box in the PR text that says the check was not run or not looked at
+# («не запускал», «не проверял», «не открывал»; a `make …` box: «не нужен», «код не менялся»).
 set -euo pipefail
 
 usage() {
@@ -118,6 +120,18 @@ if [ "$skip_project" = 0 ]; then
     err "the «README:» line says '$value': $readme"
   fi
 fi
+
+# A ticked box next to «не запускал» or «не проверял», or a `make …` box next to «не нужен» or
+# «код не менялся», claims a check that was not done. Quoted words such as «Не проверено» (the
+# section name) do not count.
+# shellcheck disable=SC2016
+unchecked=$(printf '%s\n' "$body" | tr -d '\r' |
+  grep -E '^[[:space:]>]*[-*+][[:space:]]+\[[xX]\]' | sed 's/«[^»]*»//g' |
+  grep -E '(Н|н)е[[:space:]]+(запуск|прогон|гонял|провер|открыв|смотрел)|`make [^`]*`.*(Н|н)е[[:space:]]+(нуж|менял)' || true)
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  err "a ticked box says it was not done: '$line': untick it and give the reason in «Не проверено» (prepare-pr.md, step 10)"
+done <<<"$unchecked"
 
 agent='anthropic\.com|openai\.com|claude|codex|copilot'
 while IFS= read -r author; do
