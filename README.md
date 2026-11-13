@@ -12,6 +12,7 @@
 - `scripts/update-rules.sh` — то же для автообновления: синхронизирует, только если в playbook есть что-то новое, и дописывает новые строки шаблона PR.
 - `scripts/ci-changes.sh` — для CI проектов: поменялись ли в PR только документы (раздел «CI не гоняем на документах»).
 - `scripts/check-pr.sh` — для CI проектов: имя ветки, заголовок PR, автор коммитов, следы агента, строка «Список playbook сверен» и заполненная строка «README:» в описании PR по общим правилам (его запускает `rules.yml`).
+- `scripts/merged-pr-ci.sh` — для деплоя проектов: первый шаг `deploy.yml`, CI смёрдженного PR зелёный (раздел «Минуты Actions», «Деплой»).
 - `scripts/check-project.sh` — для автообновления проектов: пункты «скрипт» списка «Что должно быть в проекте» (его запускает последний шаг `rules-update.yml`; агент — руками при сверке).
 - `scripts/check-rules-size.sh` — потолок длины `rules.md` (`make lint`).
 - `scripts/agent-guard.sh` — сторож для любого агента: отказывает в `ssh`, `scp`, `sftp`, `rsync`, `rm -rf`, force-push, push в `main` в любом написании, `--no-verify` и коммите со следами агента (выражения те же, что у `check-pr.sh`: он берёт их отсюда). Его вызывают git-хуки и хуки агентов в репе проекта (раздел «Чем держится правило»), `make sync-rules` кладёт копию в `.githooks/` проекта.
@@ -107,7 +108,7 @@
 | Шаблон PR `.github/pull_request_template.md` | файл есть, в нём все строки из `templates/.github/pull_request_template.md` | «Поменять общие правила», шаг 2 | скрипт |
 | Workflow `rules.yml` | файл как в `templates/.github/workflows/`: только `scripts/check-pr.sh` playbook и только на `pull_request` с `types: [edited]`, у job `if: ${{ !github.event.pull_request.draft }}` (на черновиках не запускается), без `push` и без `make check-rules` | «Минуты Actions»; «Как это устроено в репе проекта» | скрипт |
 | Быстрые проверки — шагами job `changes` в CI | в `.github/workflows/ci.yml` в job `changes`, как в `templates/.github/workflows/ci.yml`: поиск секретов (gitleaks) шагом, а не отдельной job; `make check-rules`; `check-pr.sh` не только на `synchronize`; у checkout playbook `fetch-depth: 0` | «Минуты Actions» | скрипт |
-| CI только на PR и не на черновиках, деплой от push в `main` без документов | в `ci.yml` нет `push`, в `pull_request.types` есть `ready_for_review`, у `changes` `if: ${{ !github.event.pull_request.draft }}`; ни один workflow не ждёт CI (`workflow_run`); workflow на push в `main` — с `paths` или `paths-ignore`, и `paths-ignore` только из документов `ci-changes.sh`; в нём шаг «CI of the merged PR is green» из части «Деплой» (последний запуск `ci.yml`, без `check-runs`) и у job права `actions: read` и `pull-requests: read` | «Минуты Actions», «Деплой» | скрипт |
+| CI только на PR и не на черновиках, деплой от push в `main` без документов | в `ci.yml` нет `push`, в `pull_request.types` есть `ready_for_review`, у `changes` `if: ${{ !github.event.pull_request.draft }}`; ни один workflow не ждёт CI (`workflow_run`); деплой — `.github/workflows/deploy.yml` (другие workflow на push в `main` деплоем не считаются): на push в `main` с `paths` или `paths-ignore`, и `paths-ignore` только из документов `ci-changes.sh`; в нём шаг «CI of the merged PR is green» из части «Деплой» (вызов `scripts/merged-pr-ci.sh` из `main` playbook, без своей копии проверки) и у job права `actions: read` и `pull-requests: read` | «Минуты Actions», «Деплой» | скрипт |
 | `.claude/settings.json` с запретами и хук `.claude/hooks/check-commit.sh` для Claude Code на компьютере | в `settings.json` все строки `deny` и хук из `templates/.claude/settings.json` (свои настройки проекта остаются); файл хука как в шаблоне (он вызывает `.githooks/agent-guard.sh`) | «Перевести существующий проект», шаг 5; «Как это устроено в репе проекта» | скрипт |
 | Git-хуки: `.githooks/pre-push` и `commit-msg`, копия сторожа `.githooks/agent-guard.sh`, цель `hooks` в `Makefile` | хуки как в `templates/.githooks/` и исполняемые; `make check-rules` проходит без предупреждения про `agent-guard.sh` (копию кладёт `make sync-rules`); в `Makefile` цель `hooks` из `templates/Makefile`; в `rules-update.yml` в `paths` есть `.githooks/agent-guard.sh` (файл как в шаблоне) | «Чем держится правило»; «Перевести существующий проект», шаг 5 | скрипт |
 | Настройки Codex: `.codex/hooks.json` и `.codex/rules/agent-guard.rules` | файлы как в `templates/.codex/` (в своём `hooks.json` проекта — хук из шаблона) | «Облако и компьютер», «Codex» | скрипт |
@@ -201,7 +202,7 @@
 - Один факт — одно место. Расписание, частота, список проектов или файлов записаны в одном месте — в коде или одном файле, — остальные ссылаются на него, а не повторяют («по расписанию рассылки», а не «раз в день»). Нашёл повтор — оставь один, остальные замени ссылкой.
 - Правило, которое касается одного проекта, сюда не кладём: ему место в разделе «Проект» того проекта.
 - Если после правки проектам нужно что-то сделать руками (новый параметр в разделе проекта, новый файл), напиши это в описании PR и добавь пункт в раздел «Что должно быть в проекте»: агенты проектов заметят новый пункт сами (`procedures/checklist.md`), отдельная фраза в каждом проекте не нужна.
-- `scripts/ci-changes.sh` и `scripts/check-pr.sh` CI проектов, а `scripts/check-project.sh` — `rules-update.yml` проектов берут прямо из `main` playbook, без PR в проекте: ошибка в них сразу ломает CI или автообновление всех проектов. Если сомневаешься, `ci-changes.sh` должен отвечать «это код» (`code=true`), а `check-pr.sh` и `check-project.sh` — пропускать.
+- `scripts/ci-changes.sh` и `scripts/check-pr.sh` CI проектов, `scripts/merged-pr-ci.sh` — деплой проектов, а `scripts/check-project.sh` — `rules-update.yml` проектов берут прямо из `main` playbook, без PR в проекте: ошибка в них сразу ломает CI, деплой или автообновление всех проектов. Если сомневаешься, `ci-changes.sh` должен отвечать «это код» (`code=true`), а `check-pr.sh` и `check-project.sh` — пропускать.
 - Своих `docs/` у playbook нет: агент открывает эту репу только для правки правил. `AGENTS.md` отсылает к `rules.md` и даёт параметры вместо раздела «Проект»: так агент на компьютере владельца, где нет инструкции проекта, знает правила и то, что репа публичная. `CLAUDE.md` подключает `AGENTS.md` и `rules.md` для Claude.
 
 ### Выпуски
@@ -296,7 +297,7 @@ Workflow `rules-update.yml` в репе проекта по кнопке и от
 
 ### Деплой
 
-Шаблона деплоя нет: у каждого проекта он свой. Запускается он от push в `main`, а не от завершения CI (`workflow_run`): CI на `main` больше не идёт. Документы — те же, что у `scripts/ci-changes.sh` (раздел «CI не гоняем на документах»), `check-project.sh` проверяет, что `paths-ignore` не шире:
+Шаблона деплоя нет: у каждого проекта он свой, в файле `.github/workflows/deploy.yml` (так `check-project.sh` отличает его от других workflow на push в `main`, например настроек репы). Запускается он от push в `main`, а не от завершения CI (`workflow_run`): CI на `main` больше не идёт. Документы — те же, что у `scripts/ci-changes.sh` (раздел «CI не гоняем на документах»), `check-project.sh` проверяет, что `paths-ignore` не шире:
 
 ```yaml
 on:
@@ -308,22 +309,21 @@ on:
 
 Если в CI проекта есть `--code '<маска>'` для файлов в `docs/`, вместо `paths-ignore` — `paths` с `'**'`, исключениями `'!docs/**'` и т.д. и этими масками после них.
 
-Условие job вида `github.event.workflow_run.conclusion == 'success'` убирают (с ним job на push не запустится никогда, `check-project.sh` это ловит), `concurrency` деплоя оставляют. Первым шагом job деплоя проверяет, что CI смёрдженного PR зелёный, — иначе без рулсета на сервер ушёл бы PR, смёрдженный с красным CI. Job деплоя для этого нужны права `actions: read` и `pull-requests: read` (свои `permissions` у job заменяют верхние целиком); при запуске кнопкой шаг пропускается:
+Условие job вида `github.event.workflow_run.conclusion == 'success'` убирают (с ним job на push не запустится никогда, `check-project.sh` это ловит), `concurrency` деплоя оставляют. Первым шагом job деплоя проверяет, что CI смёрдженного PR зелёный, — иначе без рулсета на сервер ушёл бы PR, смёрдженный с красным CI. Саму проверку проект не копирует, а вызывает `scripts/merged-pr-ci.sh` из `main` playbook, как CI вызывает `check-pr.sh`: её правка доходит до деплоя всех проектов сразу, без PR в проектах. Job деплоя нужны права `actions: read` и `pull-requests: read` (свои `permissions` у job заменяют верхние целиком); при запуске кнопкой скрипт ничего не проверяет:
 
 ```yaml
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/playbook
+          path: .playbook
+          persist-credentials: false
       - name: CI of the merged PR is green
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq 'map(select(.merged_at)) | .[0].head.sha // empty')
-          [ -n "$head" ] || { echo "::error::$GITHUB_SHA came without a PR"; exit 1; }
-          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$head&per_page=1" \
-            --jq '.workflow_runs[0] | if . then "\(.status) \(.conclusion)" else "no run" end')
-          [ "$run" = "completed success" ] || { echo "::error::CI of the merged PR is not green: $run"; exit 1; }
+        run: .playbook/scripts/merged-pr-ci.sh
 ```
 
-Шаг смотрит последний запуск `ci.yml` на head PR целиком, а не отдельные проверки (`check-runs`): по отдельным проверкам проходил PR, на котором CI не было совсем (пустой список — «зелёный»), и PR, смёрдженный в первые секунды после перевода из черновика, когда тяжёлых job ещё нет, а их `skipped` с черновика уже есть. Теперь:
+Скрипт смотрит последний запуск `ci.yml` на head PR целиком, а не отдельные проверки (`check-runs`): по отдельным проверкам проходил PR, на котором CI не было совсем (пустой список — «зелёный»), и PR, смёрдженный в первые секунды после перевода из черновика, когда тяжёлых job ещё нет, а их `skipped` с черновика уже есть. Теперь:
 
 - Нет запуска — красный: CI ещё не поставлен в очередь или пропущен (`[skip ci]` в сообщении коммита).
 - Запуск на черновике целиком `skipped`, а GitHub отдаёт запуски новыми сверху: последний — запуск после перевода в готовый, пока он идёт — красный.
@@ -338,7 +338,7 @@ on:
 1. Обновляет клон playbook (раздел «Клон playbook») и создаёт ветку по общим правилам.
 2. Берёт из `templates/.github/workflows/ci.yml` в свой `ci.yml`: `on` (только `pull_request` с типами из шаблона, без `push`), `concurrency`, `if` у `changes` (не на черновиках) и её шаги — поиск секретов (своя job gitleaks удаляется, версия и команда — как были в проекте), `make check-rules` и `check-pr.sh` без `if`, `fetch-depth: 0` у checkout playbook; `timeout-minutes` у `changes` — с запасом на gitleaks. Свои тяжёлые job проекта остаются.
 3. Заменяет `rules.yml` шаблоном `templates/.github/workflows/rules.yml`.
-4. Если есть деплой, переводит его на push в `main` с `paths-ignore` документов и первым шагом ставит «CI of the merged PR is green» с правами из части «Деплой» выше. Деплой первый раз пойдёт по-новому от мёрджа этого же PR.
+4. Если есть деплой, кладёт его в `.github/workflows/deploy.yml`, переводит на push в `main` с `paths-ignore` документов и первым шагом ставит «CI of the merged PR is green» — вызов `scripts/merged-pr-ci.sh` с правами из части «Деплой» выше; своя копия проверки (`check-runs` или `actions/workflows/ci.yml/runs`) удаляется. Деплой первый раз пойдёт по-новому от мёрджа этого же PR.
 5. Запускает `../playbook/scripts/check-project.sh .` и обновляет документы проекта, где описаны CI и деплой (`README.md`, раздел «Проект» в `AGENTS.md`, `docs/decisions.md`).
 6. Открывает PR по `docs/playbook/prepare-pr.md` и пишет в его описании, что поменять в обязательных проверках рулсета `main` (если рулсет есть): убрать `check-rules` (или `check-pr`) и job gitleaks, оставить `changes` и тяжёлые job. Сам рулсет агент не правит. Обязательную `check-rules` надо убрать до мёрджа этого PR: на нём она уже не придёт, и PR повиснет. Если рулсет ставит workflow справочника группы по своему списку (раздел «Защита main»), список проверок меняют там — текст для его проекта агент даёт владельцу.
 

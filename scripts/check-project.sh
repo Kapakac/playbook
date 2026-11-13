@@ -203,9 +203,7 @@ else
   err "ci.yml is not valid YAML"
 fi
 
-# A deploy starts from the push to main and skips documentation; CI no longer runs on main.
-# Keep doc_paths in step with is_doc in ci-changes.sh (tests/check-project.sh compares them).
-doc_paths='["*.md", ".github/*.md", "docs/**", "shared/**", "openspec/**"]'
+# No workflow waits for CI: it no longer runs on main.
 for wf in "$dir"/.github/workflows/*.yml "$dir"/.github/workflows/*.yaml; do
   [ -f "$wf" ] || continue
   name=.github/workflows/$(basename "$wf")
@@ -218,6 +216,17 @@ for wf in "$dir"/.github/workflows/*.yml "$dir"/.github/workflows/*.yaml; do
       [ -z "$job" ] || err "$name: job $job checks workflow_run, which never starts it now: drop that if (README playbook, «Деплой»)"
     done < <(jq -r '.jobs // {} | to_entries[] | select((.value.if // "") | tostring | test("workflow_run")) | .key' <<<"$json")
   fi
+done
+
+# The deploy is deploy.yml: other workflows on push to main (settings, digests) are not deploys.
+# It starts from the push to main, skips documentation and first runs merged-pr-ci.sh of playbook main.
+# Keep doc_paths in step with is_doc in ci-changes.sh (tests/check-project.sh compares them).
+doc_paths='["*.md", ".github/*.md", "docs/**", "shared/**", "openspec/**"]'
+for wf in "$dir"/.github/workflows/deploy.yml "$dir"/.github/workflows/deploy.yaml; do
+  [ -f "$wf" ] || continue
+  name=.github/workflows/$(basename "$wf")
+  json=$(yaml_json "$wf" 2>/dev/null) || continue
+  on=$(triggers <<<"$json")
   jq -e 'has("push") and ((.push // {}).branches // ["main"] | index("main"))' <<<"$on" >/dev/null || continue
   if jq -e '.push // {} | has("paths") or has("paths-ignore") | not' <<<"$on" >/dev/null; then
     err "$name runs on every push to main: add paths-ignore for documentation (README playbook, «Минуты Actions»)"
@@ -225,11 +234,13 @@ for wf in "$dir"/.github/workflows/*.yml "$dir"/.github/workflows/*.yaml; do
   while IFS= read -r path; do
     [ -z "$path" ] || err "$name: paths-ignore $path is not documentation by ci-changes.sh"
   done < <(jq -r --argjson docs "$doc_paths" '((.push // {})["paths-ignore"] // []) - $docs | .[]' <<<"$on")
-  # Single check runs let through a PR without CI and one merged right after leaving draft; the whole ci.yml run does not.
-  if ! grep -qF 'actions/workflows/ci.yml/runs?head_sha=' "$wf"; then
-    err "$name has no step «CI of the merged PR is green» checking the last ci.yml run (README playbook, «Деплой»)"
-  elif grep -q 'check-runs' "$wf"; then
-    err "$name still checks single check runs of the merged PR: keep only the step «CI of the merged PR is green» (README playbook, «Деплой»)"
+  # The check lives in playbook main, so its fixes reach the deploy without a PR in the project.
+  if ! jq -e '[.jobs // {} | .[] | .steps[]? | select((.with.repository // "") | test("/playbook$"))] | length > 0' <<<"$json" >/dev/null ||
+    ! grep -qE 'playbook/scripts/merged-pr-ci\.sh' "$wf"; then
+    err "$name has no step «CI of the merged PR is green» running scripts/merged-pr-ci.sh from a checkout of playbook main (README playbook, «Деплой»)"
+  fi
+  if grep -qE 'check-runs|actions/workflows/ci\.yml/runs' "$wf"; then
+    err "$name still checks CI of the merged PR by itself: replace that step with the call of merged-pr-ci.sh (README playbook, «Деплой»)"
   fi
   # Job permissions replace the top-level ones, so look at what each job actually gets.
   jq -e 'def can($p): . == "read-all" or . == "write-all" or (type == "object" and (.[$p] == "read" or .[$p] == "write"));
